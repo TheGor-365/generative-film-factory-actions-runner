@@ -1,0 +1,47 @@
+{
+  "document_id": "PUBLIC_RUNNER_GATE_ALLOWLIST_v01",
+  "schema_version": "1.0.0",
+  "runner_repository": "TheGor-365/generative-film-factory-actions-runner",
+  "source_of_truth": false,
+  "arbitrary_shell_allowed": false,
+  "public_artifacts_default": "none",
+  "private_content_storage_allowed": false,
+  "gates": [
+    {
+      "gate_id": "CONTROL_CENTER_READONLY_VALIDATION_v02",
+      "enabled": true,
+      "private_repository": "TheGor-365/generative-film-factory-control-center",
+      "allowed_branches": [
+        "main"
+      ],
+      "validator_set": "control_center_readonly_v02",
+      "status_context": "public-runner/control-center/readonly-validation",
+      "artifact_policy": "none",
+      "private_content_public_exposure": false,
+      "commands": [
+        {
+          "command_id": "control_center_validator",
+          "environment": {
+            "PYTHONDONTWRITEBYTECODE": "1"
+          },
+          "argv": [
+            "python",
+            "scripts/validate_control_center.py"
+          ]
+        },
+        {
+          "command_id": "control_center_unit_tests",
+          "environment": {
+            "PYTHONDONTWRITEBYTECODE": "1"
+          },
+          "argv": [
+            "python",
+            "-m",
+            "unittest",
+            "tests/test_validate_control_center.py"
+          ]
+        }
+      ]
+    }
+  ]
+}
