@@ -1,0 +1,205 @@
+name: Run Private Validator
+
+on:
+  workflow_dispatch:
+    inputs:
+      private_repo:
+        description: Allowlisted private repository
+        required: true
+        type: choice
+        options:
+          - TheGor-365/generative-film-factory-control-center
+      private_branch:
+        description: Allowlisted private branch
+        required: true
+        type: choice
+        options:
+          - main
+      private_sha:
+        description: Exact lowercase 40-character private commit SHA
+        required: true
+        type: string
+      gate_id:
+        description: Allowlisted validation gate
+        required: true
+        type: choice
+        options:
+          - CONTROL_CENTER_READONLY_VALIDATION_v02
+      status_context:
+        description: Allowlisted private commit status context
+        required: true
+        type: choice
+        options:
+          - public-runner/control-center/readonly-validation
+      write_status:
+        description: Write compact status to the exact private commit
+        required: true
+        type: boolean
+        default: false
+      write_pr_comment:
+        description: Write compact evidence to the private pull request
+        required: true
+        type: boolean
+        default: false
+      private_pr:
+        description: Private pull request number; required only for PR comment writeback
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  validate-private-sha:
+    name: validate-private-sha
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      result: ${{ steps.gate.outputs.result }}
+      exit_code: ${{ steps.gate.outputs.exit_code }}
+      validator_result: ${{ steps.gate.outputs.validator_result }}
+      test_result: ${{ steps.gate.outputs.test_result }}
+      validator_set: ${{ steps.gate.outputs.validator_set }}
+
+    steps:
+      - name: Checkout public runner
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Validate structured dispatch policy
+        shell: bash
+        env:
+          PRIVATE_REPO: ${{ inputs.private_repo }}
+          PRIVATE_BRANCH: ${{ inputs.private_branch }}
+          PRIVATE_SHA: ${{ inputs.private_sha }}
+          GATE_ID: ${{ inputs.gate_id }}
+          STATUS_CONTEXT: ${{ inputs.status_context }}
+          WRITE_PR_COMMENT: ${{ inputs.write_pr_comment }}
+          PRIVATE_PR: ${{ inputs.private_pr }}
+        run: |
+          set -euo pipefail
+          [[ "$PRIVATE_REPO" == "TheGor-365/generative-film-factory-control-center" ]]
+          [[ "$PRIVATE_BRANCH" == "main" ]]
+          [[ "$PRIVATE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GATE_ID" == "CONTROL_CENTER_READONLY_VALIDATION_v02" ]]
+          [[ "$STATUS_CONTEXT" == "public-runner/control-center/readonly-validation" ]]
+          if [[ -n "$PRIVATE_PR" ]]; then
+            [[ "$PRIVATE_PR" =~ ^[1-9][0-9]*$ ]]
+          fi
+          if [[ "$WRITE_PR_COMMENT" == "true" ]]; then
+            [[ "$PRIVATE_PR" =~ ^[1-9][0-9]*$ ]]
+          fi
+
+      - name: Checkout allowlisted private branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ inputs.private_repo }}
+          ref: ${{ inputs.private_branch }}
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
+          path: private-checkout
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify branch head and detach exact SHA
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ inputs.private_sha }}
+        run: |
+          set -euo pipefail
+          actual_sha="$(git -C private-checkout rev-parse HEAD)"
+          if [[ "$actual_sha" != "$EXPECTED_SHA" ]]; then
+            printf '%s\n' "POLICY_ERROR=PRIVATE_BRANCH_SHA_MISMATCH"
+            exit 2
+          fi
+          git -C private-checkout checkout --detach "$EXPECTED_SHA"
+          detached_sha="$(git -C private-checkout rev-parse HEAD)"
+          [[ "$detached_sha" == "$EXPECTED_SHA" ]]
+          printf '%s\n' "PRIVATE_BRANCH_SHA_MATCH=true" "DETACHED_PRIVATE_SHA_CHECKOUT=true"
+
+      - name: Run allowlisted gate
+        id: gate
+        shell: bash
+        env:
+          PRIVATE_REPO: ${{ inputs.private_repo }}
+          PRIVATE_BRANCH: ${{ inputs.private_branch }}
+          PRIVATE_SHA: ${{ inputs.private_sha }}
+          GATE_ID: ${{ inputs.gate_id }}
+          STATUS_CONTEXT: ${{ inputs.status_context }}
+        run: bash scripts/run_allowlisted_gate.sh private-checkout
+
+  writeback-result:
+    name: writeback-result
+    needs: validate-private-sha
+    if: ${{ always() && (inputs.write_status || inputs.write_pr_comment) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout public runner
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+
+      - name: Normalize compact result
+        id: outcome
+        shell: bash
+        env:
+          VALIDATION_JOB_RESULT: ${{ needs.validate-private-sha.result }}
+          GATE_RESULT: ${{ needs.validate-private-sha.outputs.result }}
+          GATE_EXIT_CODE: ${{ needs.validate-private-sha.outputs.exit_code }}
+        run: |
+          set -euo pipefail
+          result="$GATE_RESULT"
+          exit_code="$GATE_EXIT_CODE"
+          if [[ -z "$result" ]]; then
+            result="ERROR"
+          fi
+          if [[ -z "$exit_code" ]]; then
+            exit_code="2"
+          fi
+          if [[ "$VALIDATION_JOB_RESULT" == "cancelled" ]]; then
+            result="ERROR"
+            exit_code="2"
+          fi
+          printf 'result=%s\nexit_code=%s\n' "$result" "$exit_code" >> "$GITHUB_OUTPUT"
+
+      - name: Write private commit status
+        if: ${{ inputs.write_status }}
+        shell: bash
+        env:
+          PRIVATE_REPO_API_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+          PRIVATE_REPO: ${{ inputs.private_repo }}
+          PRIVATE_SHA: ${{ inputs.private_sha }}
+          STATUS_CONTEXT: ${{ inputs.status_context }}
+          RESULT: ${{ steps.outcome.outputs.result }}
+          EXIT_CODE: ${{ steps.outcome.outputs.exit_code }}
+          PUBLIC_RUN_ID: ${{ github.run_id }}
+          PUBLIC_RUN_ATTEMPT: ${{ github.run_attempt }}
+          PUBLIC_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/write_private_commit_status.sh
+
+      - name: Write compact private PR comment
+        if: ${{ inputs.write_pr_comment }}
+        shell: bash
+        env:
+          PRIVATE_REPO_API_TOKEN: ${{ secrets.PRIVATE_REPO_COMMENT_TOKEN }}
+          PRIVATE_REPO: ${{ inputs.private_repo }}
+          PRIVATE_BRANCH: ${{ inputs.private_branch }}
+          PRIVATE_SHA: ${{ inputs.private_sha }}
+          PRIVATE_PR: ${{ inputs.private_pr }}
+          GATE_ID: ${{ inputs.gate_id }}
+          VALIDATOR_SET: control_center_readonly_v02
+          STATUS_CONTEXT: ${{ inputs.status_context }}
+          RESULT: ${{ steps.outcome.outputs.result }}
+          EXIT_CODE: ${{ steps.outcome.outputs.exit_code }}
+          PUBLIC_RUN_ID: ${{ github.run_id }}
+          PUBLIC_RUN_ATTEMPT: ${{ github.run_attempt }}
+          PUBLIC_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/write_private_pr_comment.sh
