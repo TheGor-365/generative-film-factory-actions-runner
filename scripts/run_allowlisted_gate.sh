@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-set -uo pipefail
+set -euo pipefail
+
+policy_error() {
+  printf '%s\n' "POLICY_ERROR=$1"
+  exit 2
+}
 
 if [[ $# -ne 1 ]]; then
-  printf '%s\n' "POLICY_ERROR=INVALID_RUNNER_ARGUMENT_COUNT"
-  exit 2
+  policy_error "INVALID_RUNNER_ARGUMENT_COUNT"
 fi
 
 private_checkout=$1
@@ -13,14 +17,14 @@ private_checkout=$1
 : "${GATE_ID:?GATE_ID is required}"
 : "${STATUS_CONTEXT:?STATUS_CONTEXT is required}"
 
-[[ "$PRIVATE_REPO" == "TheGor-365/generative-film-factory-control-center" ]] || exit 2
-[[ "$PRIVATE_BRANCH" == "main" ]] || exit 2
-[[ "$PRIVATE_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 2
-[[ "$GATE_ID" == "CONTROL_CENTER_READONLY_VALIDATION_v02" ]] || exit 2
-[[ "$STATUS_CONTEXT" == "public-runner/control-center/readonly-validation" ]] || exit 2
-[[ -d "$private_checkout/.git" ]] || exit 2
+[[ "$PRIVATE_REPO" == "TheGor-365/generative-film-factory-control-center" ]] || policy_error "PRIVATE_REPO_NOT_ALLOWLISTED"
+[[ "$PRIVATE_BRANCH" == "main" ]] || policy_error "PRIVATE_BRANCH_NOT_ALLOWLISTED"
+[[ "$PRIVATE_SHA" =~ ^[0-9a-f]{40}$ ]] || policy_error "INVALID_PRIVATE_SHA"
+[[ "$GATE_ID" == "CONTROL_CENTER_READONLY_VALIDATION_v02" ]] || policy_error "GATE_NOT_ALLOWLISTED"
+[[ "$STATUS_CONTEXT" == "public-runner/control-center/readonly-validation" ]] || policy_error "STATUS_CONTEXT_NOT_ALLOWLISTED"
+[[ -d "$private_checkout/.git" ]] || policy_error "PRIVATE_CHECKOUT_MISSING"
 
-python - "$GATE_ID" "$PRIVATE_REPO" "$PRIVATE_BRANCH" "$STATUS_CONTEXT" <<'PY'
+if python - "$GATE_ID" "$PRIVATE_REPO" "$PRIVATE_BRANCH" "$STATUS_CONTEXT" <<'PY'
 import json
 import sys
 from pathlib import Path
@@ -46,23 +50,32 @@ if gate.get("allowed_branches") != [private_branch]:
 if gate.get("private_content_public_exposure") is not False:
     raise SystemExit("POLICY_ERROR=PRIVATE_CONTENT_POLICY_INVALID")
 PY
-allowlist_exit=$?
+then
+  allowlist_exit=0
+else
+  allowlist_exit=$?
+fi
 if [[ $allowlist_exit -ne 0 ]]; then
   exit 2
 fi
 
-validator_exit=0
-test_exit=0
-
-(
-  cd "$private_checkout" || exit 2
+if (
+  cd "$private_checkout"
   PYTHONDONTWRITEBYTECODE=1 python scripts/validate_control_center.py
-) || validator_exit=$?
+); then
+  validator_exit=0
+else
+  validator_exit=$?
+fi
 
-(
-  cd "$private_checkout" || exit 2
+if (
+  cd "$private_checkout"
   PYTHONDONTWRITEBYTECODE=1 python -m unittest tests/test_validate_control_center.py
-) || test_exit=$?
+); then
+  test_exit=0
+else
+  test_exit=$?
+fi
 
 validator_result=PASS
 test_result=PASS

@@ -37,12 +37,12 @@ on:
         type: boolean
         default: false
       write_pr_comment:
-        description: Write compact evidence to the private pull request
+        description: Reserved PR-comment writeback; must remain false for bootstrap main validation
         required: true
         type: boolean
         default: false
       private_pr:
-        description: Private pull request number; required only for PR comment writeback
+        description: Private pull request number; unused while bootstrap PR comments are disabled
         required: false
         type: string
         default: ""
@@ -90,10 +90,8 @@ jobs:
           [[ "$PRIVATE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$GATE_ID" == "CONTROL_CENTER_READONLY_VALIDATION_v02" ]]
           [[ "$STATUS_CONTEXT" == "public-runner/control-center/readonly-validation" ]]
+          [[ "$WRITE_PR_COMMENT" == "false" ]]
           if [[ -n "$PRIVATE_PR" ]]; then
-            [[ "$PRIVATE_PR" =~ ^[1-9][0-9]*$ ]]
-          fi
-          if [[ "$WRITE_PR_COMMENT" == "true" ]]; then
             [[ "$PRIVATE_PR" =~ ^[1-9][0-9]*$ ]]
           fi
 
@@ -134,6 +132,13 @@ jobs:
           STATUS_CONTEXT: ${{ inputs.status_context }}
         run: bash scripts/run_allowlisted_gate.sh private-checkout
 
+      - name: Remove private checkout
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf -- private-checkout
+
   writeback-result:
     name: writeback-result
     needs: validate-private-sha
@@ -168,28 +173,37 @@ jobs:
             result="ERROR"
             exit_code="2"
           fi
+          case "$result" in
+            PASS|FAIL|ERROR|BLOCKED) ;;
+            *)
+              printf '%s\n' "POLICY_ERROR=INVALID_RESULT" "NO_WRITE=true" "STABLE_POLICY_ERROR=true"
+              exit 2
+              ;;
+          esac
+          [[ "$exit_code" =~ ^[0-9]+$ ]]
           printf 'result=%s\nexit_code=%s\n' "$result" "$exit_code" >> "$GITHUB_OUTPUT"
 
       - name: Write private commit status
         if: ${{ inputs.write_status }}
         shell: bash
         env:
-          PRIVATE_REPO_API_TOKEN: ${{ secrets.PRIVATE_REPO_STATUS_TOKEN }}
+          PRIVATE_REPO_API_TOKEN: ${{ secrets.PRIVATE_REPO_WRITE_TOKEN }}
           PRIVATE_REPO: ${{ inputs.private_repo }}
           PRIVATE_SHA: ${{ inputs.private_sha }}
           STATUS_CONTEXT: ${{ inputs.status_context }}
           RESULT: ${{ steps.outcome.outputs.result }}
           EXIT_CODE: ${{ steps.outcome.outputs.exit_code }}
           PUBLIC_RUN_ID: ${{ github.run_id }}
+          PUBLIC_JOB_ID: validate-private-sha
           PUBLIC_RUN_ATTEMPT: ${{ github.run_attempt }}
           PUBLIC_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash scripts/write_private_commit_status.sh
 
       - name: Write compact private PR comment
-        if: ${{ inputs.write_pr_comment }}
+        if: ${{ inputs.write_pr_comment && inputs.private_branch != 'main' }}
         shell: bash
         env:
-          PRIVATE_REPO_API_TOKEN: ${{ secrets.PRIVATE_REPO_COMMENT_TOKEN }}
+          PRIVATE_REPO_API_TOKEN: ${{ secrets.PRIVATE_REPO_WRITE_TOKEN }}
           PRIVATE_REPO: ${{ inputs.private_repo }}
           PRIVATE_BRANCH: ${{ inputs.private_branch }}
           PRIVATE_SHA: ${{ inputs.private_sha }}
@@ -200,6 +214,7 @@ jobs:
           RESULT: ${{ steps.outcome.outputs.result }}
           EXIT_CODE: ${{ steps.outcome.outputs.exit_code }}
           PUBLIC_RUN_ID: ${{ github.run_id }}
+          PUBLIC_JOB_ID: validate-private-sha
           PUBLIC_RUN_ATTEMPT: ${{ github.run_attempt }}
           PUBLIC_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash scripts/write_private_pr_comment.sh
