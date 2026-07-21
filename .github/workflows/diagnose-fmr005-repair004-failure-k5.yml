@@ -1,0 +1,180 @@
+name: Diagnose FMR005 Repair004 Failure Metadata K5
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose-fmr005-repair004:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.head_ref == 'coord/diagnose-fmr005-repair004-failure-k5' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout exact private Repair 004 branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: TheGor-365/generative-film-factory-control-center
+          ref: worker/fmr005-repair-004
+          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
+          path: private-checkout
+          fetch-depth: 0
+          fetch-tags: false
+          persist-credentials: false
+          show-progress: false
+
+      - name: Emit sanitized deterministic component metadata
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          expected_sha='a10449add891b4cf6da48b98d17d638f4eafceb8'
+          actual_sha="$(git -C private-checkout rev-parse HEAD)"
+          printf '%s\n' \
+            'DIAGNOSTIC_MODE=SANITIZED_FAILURE_METADATA_ONLY' \
+            'PRIVATE_FILE_BODIES_PRINTED=false' \
+            'PUBLIC_ARTIFACT_COUNT=0' \
+            'PRIVATE_CONTENT_PUBLIC_EXPOSURE=false' \
+            'VERIFIED_READ_SECRET_REUSED=true' \
+            "EXPECTED_PRIVATE_SHA=$expected_sha" \
+            "ACTUAL_PRIVATE_SHA=$actual_sha"
+
+          if [[ "$actual_sha" != "$expected_sha" ]]; then
+            printf '%s\n' \
+              'RUNNER_POLICY=FAIL' \
+              'RUNNER_INFRASTRUCTURE=PASS' \
+              'FAILURE_CODE=PRIVATE_BRANCH_SHA_MISMATCH'
+            exit 1
+          fi
+
+          git -C private-checkout rev-parse --verify refs/remotes/origin/main >/dev/null
+          printf '%s\n' \
+            'EXACT_PRIVATE_SHA_BINDING=PASS' \
+            'RUNNER_INFRASTRUCTURE=PASS' \
+            "PYTHON_VERSION=$(python --version 2>&1)"
+
+          overall=0
+
+          python - private-checkout <<'PY'
+          import subprocess
+          import sys
+
+          root = sys.argv[1]
+          expected = {
+              '04_research/FMR-005/normalized/01_RESEARCH_REPORT.md',
+              '04_research/FMR-005/normalized/08_VALIDATOR_CANDIDATES.json',
+              '04_research/FMR-005/normalized/10_IMPLEMENTATION_HANDOFF.md',
+              '04_research/FMR-005/normalized/MANIFEST.json',
+              '04_research/FMR-005/normalized/PACKAGE_VALIDATION_REPORT.json',
+              '04_research/FMR-005/repair_004/01_REPAIR_REPORT.md',
+              '04_research/FMR-005/repair_004/02_FINDING_DISPOSITION.json',
+              '04_research/FMR-005/repair_004/03_VALIDATION_REPORT.json',
+              '04_research/FMR-005/repair_004/MANIFEST.json',
+              'scripts/validate_fmr005_repair.py',
+              'tests/fixtures/fmr005_repair/invalid_package_validation_report_drift.json',
+              'tests/fixtures/fmr005_repair/invalid_report_assertion_count_drift.json',
+              'tests/fixtures/fmr005_repair/invalid_report_claim_count_drift.json',
+              'tests/fixtures/fmr005_repair/invalid_report_status_drift.json',
+              'tests/fixtures/fmr005_repair/valid_report_consistency_control.json',
+              'tests/test_validate_fmr005_repair.py',
+          }
+          output = subprocess.check_output(
+              ['git', '-C', root, 'diff', '--name-only', 'origin/main...HEAD'],
+              text=True,
+              encoding='utf-8',
+          )
+          observed = {line for line in output.splitlines() if line}
+          print(f'EXPECTED_CHANGED_PATH_COUNT={len(expected)}')
+          print(f'OBSERVED_CHANGED_PATH_COUNT={len(observed)}')
+          print(f'MISSING_CHANGED_PATH_COUNT={len(expected - observed)}')
+          print(f'UNAUTHORIZED_CHANGED_PATH_COUNT={len(observed - expected)}')
+          print('EXACT_CHANGED_PATH_SCOPE=' + ('PASS' if observed == expected else 'FAIL'))
+          raise SystemExit(0 if observed == expected else 1)
+          PY
+          scope_exit=$?
+          if [[ $scope_exit -ne 0 ]]; then overall=1; fi
+
+          if git -C private-checkout diff --check origin/main...HEAD >/dev/null 2>&1; then
+            printf '%s\n' 'GIT_DIFF_CHECK=PASS'
+          else
+            printf '%s\n' 'GIT_DIFF_CHECK=FAIL'
+            overall=1
+          fi
+
+          run_component() {
+            local label=$1
+            shift
+            local log_file
+            local command_exit
+            log_file="$(mktemp)"
+            (
+              cd private-checkout
+              PYTHONDONTWRITEBYTECODE=1 "$@" >"$log_file" 2>&1
+            )
+            command_exit=$?
+            printf '%s\n' "${label}_EXIT_CODE=$command_exit"
+            grep -E '^(FAILURE_CODE|POLICY_ERROR|VALIDATION_ERROR|MANIFEST_ERROR|REPORT_ERROR|PACKAGE_ERROR)=' "$log_file" | head -n 50 || true
+            rm -f -- "$log_file"
+            if [[ $command_exit -eq 0 ]]; then
+              printf '%s\n' "${label}=PASS"
+            else
+              printf '%s\n' "${label}=FAIL"
+              overall=1
+            fi
+          }
+
+          run_component CONTROL_CENTER_VALIDATOR python scripts/validate_control_center.py
+          run_component FMR005_REPAIR_VALIDATOR python scripts/validate_fmr005_repair.py --repo-root .
+
+          unit_log="$(mktemp)"
+          (
+            cd private-checkout
+            PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -p 'test_*.py' >"$unit_log" 2>&1
+          )
+          unit_exit=$?
+
+          python - "$unit_log" "$unit_exit" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+
+          path = Path(sys.argv[1])
+          unit_exit = int(sys.argv[2])
+          text = path.read_text(encoding='utf-8', errors='replace')
+          matches = re.findall(r'Ran\s+(\d+)\s+tests?', text)
+          count = int(matches[-1]) if matches else None
+          failed = sorted(set(re.findall(r'^(?:FAIL|ERROR):\s+([^\s]+)', text, flags=re.MULTILINE)))
+          discovery_pass = unit_exit == 0 and count is not None
+          threshold_pass = count is not None and count > 58
+          print('FULL_UNITTEST_DISCOVERY=' + ('PASS' if discovery_pass else 'FAIL'))
+          print('UNIT_TEST_COUNT_OBSERVED=' + ('true' if count is not None else 'false'))
+          print(f'UNIT_TEST_COUNT={count if count is not None else 0}')
+          print('UNIT_TEST_COUNT_GREATER_THAN_58=' + ('true' if threshold_pass else 'false'))
+          print(f'FAILED_TEST_NAME_COUNT={len(failed)}')
+          for name in failed:
+              print(f'FAILED_TEST={name}')
+          print('MUTATION_CHECKS_COUPLED_TO_FULL_UNITTEST=true')
+          print('MUTATION_CHECKS=' + ('PASS' if discovery_pass and threshold_pass else 'FAIL'))
+          raise SystemExit(0 if discovery_pass and threshold_pass else 1)
+          PY
+          unit_summary_exit=$?
+          rm -f -- "$unit_log"
+          if [[ $unit_summary_exit -ne 0 ]]; then overall=1; fi
+
+          if [[ $scope_exit -eq 0 ]]; then
+            printf '%s\n' 'RUNNER_POLICY=PASS'
+          else
+            printf '%s\n' 'RUNNER_POLICY=FAIL'
+            overall=1
+          fi
+
+          if [[ $overall -eq 0 ]]; then
+            printf '%s\n' 'DIAGNOSTIC_GATE_RESULT=PASS'
+            exit 0
+          fi
+          printf '%s\n' 'DIAGNOSTIC_GATE_RESULT=FAIL'
+          exit 1
