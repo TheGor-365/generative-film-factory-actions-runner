@@ -158,7 +158,7 @@ jobs:
   writeback-result:
     name: writeback-result
     needs: validate-private-sha
-    if: ${{ always() && (inputs.write_status || inputs.write_pr_comment) }}
+    if: ${{ always() && inputs.gate_id == 'CONTROL_CENTER_READONLY_VALIDATION_v02' && (inputs.write_status || inputs.write_pr_comment) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
