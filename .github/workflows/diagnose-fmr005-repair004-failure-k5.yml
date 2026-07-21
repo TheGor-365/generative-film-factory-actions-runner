@@ -15,22 +15,11 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - name: Checkout exact private Repair 004 branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: TheGor-365/generative-film-factory-control-center
-          ref: worker/fmr005-repair-004
-          token: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
-          path: private-checkout
-          fetch-depth: 1
-          fetch-tags: false
-          persist-credentials: true
-          show-progress: false
-
       - name: Emit sanitized deterministic component metadata
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          PRIVATE_REPO_READ_TOKEN: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
         run: |
           curl --fail --silent --show-error --location --header "Authorization: Bearer $GH_TOKEN" --header "Accept: application/vnd.github.raw+json" "https://api.github.com/repos/${GITHUB_REPOSITORY}/contents/scripts/diagnose_fmr005_repair004_failure_k5.py?ref=${GITHUB_HEAD_REF}" --output /tmp/diagnose.py
           python /tmp/diagnose.py
