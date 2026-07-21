@@ -2,7 +2,8 @@
 
 ```text
 CONTRACT_ID=PUBLIC_RUNNER_CENTER_CONTRACT_v01
-WORK_ORDER_ID=RWO-PUBLIC-RUNNER-BOOTSTRAP-001
+INITIAL_WORK_ORDER_ID=RWO-PUBLIC-RUNNER-BOOTSTRAP-001
+CURRENT_RECOVERY_ID=RWO-PUBLIC-RUNNER-FMR005-REPAIR004-GATE-001
 PUBLIC_RUNNER_REPO=TheGor-365/generative-film-factory-actions-runner
 PRIVATE_CONTROL_CENTER_REPO=TheGor-365/generative-film-factory-control-center
 WORKFLOW_NAME=Run Private Validator
@@ -11,20 +12,17 @@ GLOBAL_PERMISSIONS=contents:read
 VALIDATION_JOB=validate-private-sha
 WRITEBACK_JOB=writeback-result
 PUBLIC_JOB_ID=validate-private-sha
-GATE_ID=CONTROL_CENTER_READONLY_VALIDATION_v02
 PUBLIC_ARTIFACTS=none
 CACHE=none
 ACCESS_CONFIGURATION_AUTHORIZED=false
 RUN_AUTHORIZED=false
-MERGE_ALLOWED=false
+PRIVATE_WRITEBACK_AUTHORIZED=false
 NO_FAKE_GREEN=true
 ```
 
 ## Authority and result vocabulary
 
 The private Control Center remains the source of truth. This public repository may produce execution evidence for an exact private SHA; it cannot change research truth, coordination truth, architecture authority, release state, client acceptance, or production state.
-
-The exact result vocabulary is:
 
 ```text
 PASS=allowlisted validator commands returned zero for the exact private SHA
@@ -33,16 +31,7 @@ ERROR=policy access checkout dispatch runner or infrastructure failure
 BLOCKED=required authorization or access is unavailable
 ```
 
-Both writeback scripts accept exactly `PASS|FAIL|ERROR|BLOCKED`. Commit-status mapping is exact:
-
-```text
-PASS=success
-FAIL=failure
-ERROR=error
-BLOCKED=error
-```
-
-An unknown result produces `NO_WRITE=true` and `STABLE_POLICY_ERROR=true`; it is not silently converted into a publishable result. PASS is not research, critic, human, legal, artistic, client, production, or release acceptance.
+An unknown result produces no accepted evidence. `PASS` is not research, critic, human, legal, artistic, client, production, or release acceptance. `ERROR` is not content `FAIL`.
 
 ## Workflow boundary
 
@@ -51,7 +40,6 @@ The sole workflow is `.github/workflows/run-private-validator.yml` and has these
 - manual `workflow_dispatch` only;
 - global `contents: read` permission only;
 - GitHub-hosted Linux runners only;
-- validation job identifier `validate-private-sha` and writeback job identifier `writeback-result`;
 - no environments, deployments, releases, packages, matrices, caches, or artifact uploads;
 - no arbitrary shell, command, path, URL, repository, gate, status context, or artifact-name input;
 - no execution from pull requests, forks, schedules, repository dispatches, issue comments, pushes, or workflow chaining;
@@ -67,43 +55,18 @@ actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
 
 Every checkout sets `persist-credentials: false`.
 
-## Structured bootstrap inputs
+## Allowlisted dispatch tuples
 
-The workflow accepts only:
+### Control Center readonly validation
 
 ```text
 private_repo=TheGor-365/generative-film-factory-control-center
 private_branch=main
-private_sha=<40-character lowercase hexadecimal SHA>
+private_sha=<exact 40-character lowercase SHA>
 gate_id=CONTROL_CENTER_READONLY_VALIDATION_v02
 status_context=public-runner/control-center/readonly-validation
-write_status=true|false
 write_pr_comment=false
-private_pr=<positive integer or empty>
 ```
-
-Repository, branch, gate, and status context are choice-restricted and validated again before checkout. The current allowlist validates private `main`, so bootstrap dispatch policy requires `write_pr_comment=false`. PR-comment writeback capability is statically implemented but is not claimed as runtime-tested in this bootstrap phase.
-
-## Exact-SHA checkout and cleanup
-
-The validation job:
-
-1. checks out this public runner with credentials disabled;
-2. validates all structured inputs;
-3. checks out the allowlisted private branch with `PRIVATE_REPO_READ_TOKEN` and `persist-credentials: false`;
-4. proves the resolved branch head equals `private_sha`;
-5. switches the private checkout to detached HEAD at that exact SHA;
-6. invokes only `scripts/run_allowlisted_gate.sh`;
-7. runs an `if: always()` cleanup step that executes `rm -rf -- private-checkout` without listing or printing private paths or content;
-8. emits compact result metadata without caches, artifacts, debug dumps, or uploads.
-
-Cleanup runs after validator success, validator failure, and policy failure whenever the job reaches the checkout or execution phase. Any branch/SHA mismatch is a policy error and stops validation.
-
-## Gate execution
-
-The allowlist is `00_contracts/GATE_ALLOWLIST_v01.json`. The shell runner contains a fixed case for the single gate and does not execute command text from JSON or workflow input.
-
-`scripts/run_allowlisted_gate.sh` uses `set -euo pipefail`. Validator and test exit codes are preserved only through explicit `if command; then status=0; else status=$?; fi` blocks. It does not use `set +e`, `eval`, or `bash -c`/`sh -c` with input-provided command text.
 
 Fixed commands:
 
@@ -112,42 +75,109 @@ PYTHONDONTWRITEBYTECODE=1 python scripts/validate_control_center.py
 PYTHONDONTWRITEBYTECODE=1 python -m unittest tests/test_validate_control_center.py
 ```
 
-## Writeback credential and evidence boundary
-
-The validation job never receives a write token. The only write-secret name is:
+### FMR-005 Repair 004 validation
 
 ```text
-PRIVATE_REPO_WRITE_TOKEN
+private_repo=TheGor-365/generative-film-factory-control-center
+private_branch=worker/fmr005-repair-004
+private_sha=a10449add891b4cf6da48b98d17d638f4eafceb8
+private_pr=137
+gate_id=FMR005_REPAIR004_VALIDATION_v01
+status_context=public-runner/fmr005/repair004-validation
+write_status=false
+write_pr_comment=false
 ```
 
-It is referenced only inside `writeback-result` and is supplied to the two bounded writeback scripts as `PRIVATE_REPO_API_TOKEN`. Its value is configured outside Git and is not configured by this implementation repair.
+The workflow validates the exact tuple again before checkout. The runner code then validates the matching machine-readable gate record and does not execute command text supplied by JSON or workflow input.
 
-Both writeback scripts require and strictly validate:
+Fixed Repair 004 checks:
 
 ```text
-PUBLIC_RUN_ID=<numeric GitHub Actions run id>
-PUBLIC_JOB_ID=validate-private-sha
+1 exact changed-path set equals the sixteen paths in GATE_ALLOWLIST_v01.json
+2 git diff --check origin/main...HEAD
+3 PYTHONDONTWRITEBYTECODE=1 python scripts/validate_control_center.py
+4 PYTHONDONTWRITEBYTECODE=1 python scripts/validate_fmr005_repair.py --repo-root .
+5 PYTHONDONTWRITEBYTECODE=1 python -m unittest discover -s tests -p test_*.py
+6 observed unit-test count must be greater than 58
 ```
 
-No additional GitHub Actions API lookup is used to derive the job identifier. Compact status and PR evidence include the stable job identifier together with the public run identifier.
+The Repair 004 gate is not a general branch validator. It accepts only PR `137`, branch `worker/fmr005-repair-004`, the named status context, and the exact gate ID.
 
-`write_private_pr_comment.sh` performs no comment POST until it:
+## Exact-SHA checkout and cleanup
 
-1. validates `PRIVATE_PR` as a positive integer;
-2. performs a GET only to `https://api.github.com/repos/${PRIVATE_REPO}/pulls/${PRIVATE_PR}` for PR verification;
-3. verifies the response is a pull-request object with the requested number and a string `pull_request.head.sha` equivalent at JSON path `head.sha`;
-4. verifies `pull_request.head.sha == PRIVATE_SHA` exactly.
+The validation job:
 
-A lookup failure, invalid PR response, or head/SHA mismatch produces a stable policy error and no comment POST. The `/issues/${PRIVATE_PR}/comments` endpoint is used only after successful PR verification to create the comment; it is not used to prove that the target is a pull request.
+1. checks out this public runner with credentials disabled;
+2. validates all structured inputs;
+3. checks out the allowlisted private branch using `PRIVATE_REPO_READ_TOKEN`, full history, and `persist-credentials: false`;
+4. proves the resolved branch head equals `private_sha`;
+5. switches the private checkout to detached HEAD at that exact SHA;
+6. invokes only `scripts/run_allowlisted_gate.sh`;
+7. performs cleanup with `rm -rf -- private-checkout` under `if: always()`;
+8. emits compact result metadata without caches, artifacts, debug dumps, or uploads.
 
-Writeback metadata is compact and contains only public run/job identity, private repository identifier, branch, exact SHA, gate and validator-set identifiers, exact result, exit code, status context, `PUBLIC_ARTIFACT_COUNT=0`, and `PRIVATE_CONTENT_PUBLIC_EXPOSURE=false`. Writeback never modifies private files or branches.
+The full-history checkout is required only so the Repair 004 gate can resolve `origin/main`, calculate the merge-base diff, and prove the exact sixteen-path scope. A missing `origin/main` produces a policy `ERROR`, not a fabricated validation result.
+
+## Log and evidence boundary
+
+Allowed public output is limited to:
+
+```text
+repository identifier
+branch identifier
+exact SHA
+gate and validator-set identifiers
+file counts
+stable policy and validation result codes
+unit-test count
+failed test names
+exit codes
+public run identity
+short summary
+```
+
+Forbidden public output includes:
+
+```text
+full private files
+research document bodies
+private repository archives
+client inputs
+provider payloads
+credentials
+private artifact URLs
+rendered media
+```
+
+Validator and unittest command output is captured in temporary files. The runner emits only compact statuses, counts, and failed test names, then removes the temporary files. No workflow artifacts are uploaded.
+
+## Gate implementation boundary
+
+The allowlist is `00_contracts/GATE_ALLOWLIST_v01.json`. `scripts/run_allowlisted_gate.sh` contains fixed cases for the two gates. It does not use `eval`, input-provided commands, arbitrary paths, or command text from JSON.
+
+The Repair 004 gate compares the observed `origin/main...HEAD` changed-path set to the exact allowlisted sixteen-path set. It also performs a whitespace check on the same merge-base range. A new private branch commit invalidates earlier evidence.
+
+## Credential boundary
+
+The validation job may receive only:
+
+```text
+PRIVATE_REPO_READ_TOKEN
+```
+
+for read-only checkout of the private Control Center. The token value is configured outside Git, is not persisted by checkout, and must not be printed.
+
+The separate writeback job references `PRIVATE_REPO_WRITE_TOKEN`, but Repair 004 dispatch policy requires both `write_status=false` and `write_pr_comment=false`. Therefore no private write token is required or authorized for this recovery gate.
 
 ## Authorization state
 
-Repository files define capability but do not authorize use. Until separate commands are issued:
+Repository files define capability but do not authorize use. Until separate master commands are issued:
 
 ```text
 ACCESS_CONFIGURATION_AUTHORIZED=false
-RUN_AUTHORIZED=false
-MERGE_ALLOWED=false
+WORKFLOW_DISPATCH_AUTHORIZED=false
+PRIVATE_WRITEBACK_AUTHORIZED=false
+RUNNER_RESULT_ACCEPTANCE_AUTHORIZED=false
 ```
+
+Static review and merge of the five-file public-runner implementation do not by themselves authorize secret creation or workflow dispatch.

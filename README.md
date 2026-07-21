@@ -16,17 +16,34 @@ RUN_AUTHORIZED=false
 MERGE_ALLOWED=false
 ```
 
-## Initial gate
+## Allowlisted gates
 
-The bootstrap implementation contains one fixed gate:
+### Control Center readonly gate
 
 ```text
 GATE_ID=CONTROL_CENTER_READONLY_VALIDATION_v02
+ALLOWED_BRANCH=main
 VALIDATOR_SET=control_center_readonly_v02
 STATUS_CONTEXT=public-runner/control-center/readonly-validation
 ```
 
-The gate validates one exact private `main` commit after proving that the requested branch head equals the requested 40-character SHA. Commands are resolved from repository-controlled allowlist code; workflow inputs cannot supply shell commands, paths, URLs, environment assignments, or artifact names.
+This gate validates one exact private `main` commit after proving that the requested branch head equals the requested 40-character SHA.
+
+### FMR-005 Repair 004 gate
+
+```text
+GATE_ID=FMR005_REPAIR004_VALIDATION_v01
+ALLOWED_BRANCH=worker/fmr005-repair-004
+PRIVATE_PR=137
+VALIDATOR_SET=fmr005_repair004_v01
+STATUS_CONTEXT=public-runner/fmr005/repair004-validation
+EXPECTED_CHANGED_PATH_COUNT=16
+MINIMUM_UNIT_TEST_COUNT_EXCLUSIVE=58
+```
+
+This gate validates the exact staged Repair 004 branch. It checks the exact sixteen-path scope against private `main`, runs the Control Center validator, runs the FMR-005 repair validator, runs complete unit-test discovery, requires more than 58 tests, and runs `git diff --check`.
+
+Commands and changed paths are resolved from repository-controlled code and the machine-readable allowlist. Workflow inputs cannot provide shell commands, paths, URLs, environment assignments, artifact names, or alternate repositories.
 
 ## Security boundary
 
@@ -35,8 +52,9 @@ The gate validates one exact private `main` commit after proving that the reques
 - Checkout credentials are not persisted.
 - Full private files, repository archives, research bodies, client content, provider payloads, and media must not be emitted or uploaded.
 - No cache, artifact upload, deployment, release, package publishing, self-hosted runner, or production orchestration is included.
-- Runner PASS applies only to the named gate and exact private SHA. It is not research, critic, human, legal, artistic, client, production, or release acceptance.
+- Runner `PASS` applies only to the named gate and exact private SHA. It is not research, critic, human, legal, artistic, client, production, or release acceptance.
+- A gate `ERROR` or infrastructure failure is not a content `FAIL`.
 
 ## Current phase
 
-Implementation is submitted through a draft pull request for static and security review. Access configuration, workflow dispatch, and merge remain prohibited until separately authorized by the master coordinator.
+The FMR-005 Repair 004 gate is submitted for exact-head static and security review. Secret configuration, workflow dispatch, private writeback, and runner-result acceptance remain prohibited until separately authorized by the master coordinator.

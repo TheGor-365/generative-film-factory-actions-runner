@@ -15,6 +15,7 @@ on:
         type: choice
         options:
           - main
+          - worker/fmr005-repair-004
       private_sha:
         description: Exact lowercase 40-character private commit SHA
         required: true
@@ -25,24 +26,26 @@ on:
         type: choice
         options:
           - CONTROL_CENTER_READONLY_VALIDATION_v02
+          - FMR005_REPAIR004_VALIDATION_v01
       status_context:
         description: Allowlisted private commit status context
         required: true
         type: choice
         options:
           - public-runner/control-center/readonly-validation
+          - public-runner/fmr005/repair004-validation
       write_status:
         description: Write compact status to the exact private commit
         required: true
         type: boolean
         default: false
       write_pr_comment:
-        description: Reserved PR-comment writeback; must remain false for bootstrap main validation
+        description: Write compact evidence to an exact private pull request
         required: true
         type: boolean
         default: false
       private_pr:
-        description: Private pull request number; unused while bootstrap PR comments are disabled
+        description: Private pull request number when required by the selected gate
         required: false
         type: string
         default: ""
@@ -81,19 +84,31 @@ jobs:
           PRIVATE_SHA: ${{ inputs.private_sha }}
           GATE_ID: ${{ inputs.gate_id }}
           STATUS_CONTEXT: ${{ inputs.status_context }}
+          WRITE_STATUS: ${{ inputs.write_status }}
           WRITE_PR_COMMENT: ${{ inputs.write_pr_comment }}
           PRIVATE_PR: ${{ inputs.private_pr }}
         run: |
           set -euo pipefail
           [[ "$PRIVATE_REPO" == "TheGor-365/generative-film-factory-control-center" ]]
-          [[ "$PRIVATE_BRANCH" == "main" ]]
           [[ "$PRIVATE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          [[ "$GATE_ID" == "CONTROL_CENTER_READONLY_VALIDATION_v02" ]]
-          [[ "$STATUS_CONTEXT" == "public-runner/control-center/readonly-validation" ]]
-          [[ "$WRITE_PR_COMMENT" == "false" ]]
-          if [[ -n "$PRIVATE_PR" ]]; then
-            [[ "$PRIVATE_PR" =~ ^[1-9][0-9]*$ ]]
-          fi
+
+          case "$GATE_ID|$PRIVATE_BRANCH|$STATUS_CONTEXT" in
+            "CONTROL_CENTER_READONLY_VALIDATION_v02|main|public-runner/control-center/readonly-validation")
+              [[ "$WRITE_PR_COMMENT" == "false" ]]
+              if [[ -n "$PRIVATE_PR" ]]; then
+                [[ "$PRIVATE_PR" =~ ^[1-9][0-9]*$ ]]
+              fi
+              ;;
+            "FMR005_REPAIR004_VALIDATION_v01|worker/fmr005-repair-004|public-runner/fmr005/repair004-validation")
+              [[ "$PRIVATE_PR" == "137" ]]
+              [[ "$WRITE_STATUS" == "false" ]]
+              [[ "$WRITE_PR_COMMENT" == "false" ]]
+              ;;
+            *)
+              printf '%s\n' "POLICY_ERROR=DISPATCH_TUPLE_NOT_ALLOWLISTED"
+              exit 2
+              ;;
+          esac
 
       - name: Checkout allowlisted private branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -102,7 +117,7 @@ jobs:
           ref: ${{ inputs.private_branch }}
           token: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
           path: private-checkout
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Verify branch head and detach exact SHA
@@ -128,6 +143,7 @@ jobs:
           PRIVATE_REPO: ${{ inputs.private_repo }}
           PRIVATE_BRANCH: ${{ inputs.private_branch }}
           PRIVATE_SHA: ${{ inputs.private_sha }}
+          PRIVATE_PR: ${{ inputs.private_pr }}
           GATE_ID: ${{ inputs.gate_id }}
           STATUS_CONTEXT: ${{ inputs.status_context }}
         run: bash scripts/run_allowlisted_gate.sh private-checkout
@@ -142,7 +158,7 @@ jobs:
   writeback-result:
     name: writeback-result
     needs: validate-private-sha
-    if: ${{ always() && (inputs.write_status || inputs.write_pr_comment) }}
+    if: ${{ always() && inputs.gate_id == 'CONTROL_CENTER_READONLY_VALIDATION_v02' && (inputs.write_status || inputs.write_pr_comment) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -209,7 +225,7 @@ jobs:
           PRIVATE_SHA: ${{ inputs.private_sha }}
           PRIVATE_PR: ${{ inputs.private_pr }}
           GATE_ID: ${{ inputs.gate_id }}
-          VALIDATOR_SET: control_center_readonly_v02
+          VALIDATOR_SET: ${{ needs.validate-private-sha.outputs.validator_set }}
           STATUS_CONTEXT: ${{ inputs.status_context }}
           RESULT: ${{ steps.outcome.outputs.result }}
           EXIT_CODE: ${{ steps.outcome.outputs.exit_code }}
