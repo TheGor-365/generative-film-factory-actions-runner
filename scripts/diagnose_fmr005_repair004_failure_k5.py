@@ -105,7 +105,6 @@ fetch = invoke(
         "fetch",
         "--quiet",
         "--no-tags",
-        "--depth=1",
         "origin",
         "+refs/heads/worker/fmr005-repair-004:refs/remotes/origin/worker/fmr005-repair-004",
         "+refs/heads/main:refs/remotes/origin/main",
@@ -168,12 +167,36 @@ for label, command in components:
     print(f"{label}=" + ("PASS" if passed else "FAIL"))
     overall |= 0 if passed else 1
 
+validator_source = (root / "scripts/validate_fmr005_repair.py").read_text(encoding="utf-8")
+print(
+    "VALIDATOR_CONTAINS_EXPLICIT_TEST_FILE_PATH="
+    + ("true" if "tests/test_validate_fmr005_repair.py" in validator_source else "false")
+)
+print(
+    "VALIDATOR_CONTAINS_TESTS_DOT="
+    + ("true" if "tests." in validator_source else "false")
+)
+
+date_fixture = run(
+    [
+        "python",
+        "scripts/validate_fmr005_repair.py",
+        "--fixture",
+        "tests/fixtures/fmr005_repair/invalid_claim_date.json",
+    ]
+)
+date_errors = [line for line in date_fixture.stdout.splitlines() if line]
+print(f"DATE_FIXTURE_EXIT_CODE={date_fixture.returncode}")
+print(f"DATE_FIXTURE_ERROR_COUNT={len(date_errors)}")
+for line in date_errors[:20]:
+    print(f"DATE_FIXTURE_ERROR={line[:300]}")
+
 unit = run(["python", "-m", "unittest", "discover", "-s", "tests", "-p", "test_*.py"])
 unit_text = unit.stdout + "\n" + unit.stderr
 matches = re.findall(r"Ran\s+(\d+)\s+tests?", unit_text)
 count = int(matches[-1]) if matches else None
 failed = sorted(
-    set(re.findall(r"^(?:FAIL|ERROR):\s+([^\s]+)", unit_text, flags=re.MULTILINE))
+    set(re.findall(r"^(?:FAIL|ERROR):\s+([^\n]+)", unit_text, flags=re.MULTILINE))
 )
 discovery_pass = unit.returncode == 0 and count is not None
 threshold_pass = count is not None and count > 58
@@ -183,7 +206,7 @@ print(f"UNIT_TEST_COUNT={count if count is not None else 0}")
 print("UNIT_TEST_COUNT_GREATER_THAN_58=" + ("true" if threshold_pass else "false"))
 print(f"FAILED_TEST_NAME_COUNT={len(failed)}")
 for name in failed:
-    print(f"FAILED_TEST={name}")
+    print(f"FAILED_TEST={name[:300]}")
 print("MUTATION_CHECKS_COUPLED_TO_FULL_UNITTEST=true")
 print("MUTATION_CHECKS=" + ("PASS" if discovery_pass and threshold_pass else "FAIL"))
 overall |= 0 if discovery_pass and threshold_pass else 1
