@@ -1,4 +1,4 @@
-name: Run Exact FMR005 Repair004 Gate 28a46b6 R2
+name: Run Exact FMR005 Repair004 Gate 640f0c5 R3
 
 on:
   pull_request:
@@ -39,7 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          expected='28a46b6d23270d633ce9cd1e8609b85623bef89b'
+          expected='640f0c5c8bd09b5c395082dfcabaf790fd405ad2'
           [[ "$(git -C private-checkout rev-parse HEAD)" == "$expected" ]]
           git -C private-checkout checkout --detach "$expected"
           git -C private-checkout rev-parse --verify refs/remotes/origin/main >/dev/null
@@ -52,7 +52,7 @@ jobs:
         env:
           PRIVATE_REPO: TheGor-365/generative-film-factory-control-center
           PRIVATE_BRANCH: worker/fmr005-repair-004
-          PRIVATE_SHA: 28a46b6d23270d633ce9cd1e8609b85623bef89b
+          PRIVATE_SHA: 640f0c5c8bd09b5c395082dfcabaf790fd405ad2
           PRIVATE_PR: '137'
           GATE_ID: FMR005_REPAIR004_VALIDATION_v01
           STATUS_CONTEXT: public-runner/fmr005/repair004-validation
@@ -78,7 +78,7 @@ jobs:
         env:
           PRIVATE_REPO_API_TOKEN: ${{ secrets.PRIVATE_REPO_WRITE_TOKEN }}
           PRIVATE_REPO: TheGor-365/generative-film-factory-control-center
-          PRIVATE_SHA: 28a46b6d23270d633ce9cd1e8609b85623bef89b
+          PRIVATE_SHA: 640f0c5c8bd09b5c395082dfcabaf790fd405ad2
           STATUS_CONTEXT: public-runner/fmr005/repair004-validation
           RESULT: ${{ steps.outcome.outputs.result }}
           EXIT_CODE: ${{ steps.outcome.outputs.exit_code }}
