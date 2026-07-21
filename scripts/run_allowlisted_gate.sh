@@ -99,6 +99,7 @@ run_private_command() {
     command_exit=$?
   fi
   printf '%s\n' "${label}_EXIT_CODE=$command_exit"
+  grep -E '^(FAILURE_CODE|POLICY_ERROR|VALIDATION_ERROR|MANIFEST_ERROR|REPORT_ERROR|PACKAGE_ERROR)=' "$log_file" || true
   rm -f -- "$log_file"
   return "$command_exit"
 }
@@ -201,7 +202,8 @@ PY
     unit_exit=$?
   fi
 
-  if python - "$unit_log" <<'PY'
+  unit_summary=$(mktemp)
+  if python - "$unit_log" >"$unit_summary" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -214,7 +216,6 @@ if not matches:
 count = int(matches[-1])
 print("UNIT_TEST_COUNT_OBSERVED=true")
 print(f"UNIT_TEST_COUNT={count}")
-print(f"UNIT_TEST_DISCOVERY=PASS_{count}_OF_{count}" if count > 58 else f"UNIT_TEST_DISCOVERY=FAIL_{count}_NOT_GREATER_THAN_58")
 failed = sorted(set(re.findall(r"^(?:FAIL|ERROR):\s+([^\s]+)", text, flags=re.MULTILINE)))
 print(f"FAILED_TEST_NAME_COUNT={len(failed)}")
 for name in failed:
@@ -227,14 +228,24 @@ PY
   else
     unit_parse_exit=$?
   fi
-  rm -f -- "$unit_log"
+  cat "$unit_summary"
+  unit_count=$(awk -F= '$1 == "UNIT_TEST_COUNT" {print $2}' "$unit_summary" | tail -n 1)
+  rm -f -- "$unit_log" "$unit_summary"
 
-  if [[ $unit_exit -eq 0 && $unit_parse_exit -eq 0 ]]; then
+  if [[ $unit_exit -eq 0 && $unit_parse_exit -eq 0 && -n "$unit_count" ]]; then
     test_result=PASS
-    printf '%s\n' "UNIT_TEST_RESULT=PASS" "UNIT_TEST_COUNT_GREATER_THAN_58=true" "MUTATION_CHECKS=PASS"
+    printf '%s\n' \
+      "UNIT_TEST_RESULT=PASS" \
+      "UNIT_TEST_DISCOVERY=PASS_${unit_count}_OF_${unit_count}" \
+      "UNIT_TEST_COUNT_GREATER_THAN_58=true" \
+      "MUTATION_CHECKS=PASS"
   else
     test_result=FAIL
-    printf '%s\n' "UNIT_TEST_RESULT=FAIL" "UNIT_TEST_COUNT_GREATER_THAN_58=false" "MUTATION_CHECKS=FAIL"
+    printf '%s\n' \
+      "UNIT_TEST_RESULT=FAIL" \
+      "UNIT_TEST_DISCOVERY=FAIL" \
+      "UNIT_TEST_COUNT_GREATER_THAN_58=false" \
+      "MUTATION_CHECKS=FAIL"
   fi
 
   for observed_exit in "$scope_exit" "$diff_exit" "$control_validator_exit" "$repair_validator_exit"; do
