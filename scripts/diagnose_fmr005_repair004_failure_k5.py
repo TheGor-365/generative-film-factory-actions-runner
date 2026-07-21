@@ -1,3 +1,5 @@
+import base64
+import os
 import re
 import subprocess
 import sys
@@ -5,6 +7,7 @@ from pathlib import Path
 
 root = Path("private-checkout")
 expected_sha = "a10449add891b4cf6da48b98d17d638f4eafceb8"
+private_repo_url = "https://github.com/TheGor-365/generative-film-factory-control-center"
 expected_paths = {
     "04_research/FMR-005/normalized/01_RESEARCH_REPORT.md",
     "04_research/FMR-005/normalized/08_VALIDATOR_CANDIDATES.json",
@@ -33,16 +36,26 @@ prefixes = (
 )
 
 
-def run(args: list[str], cwd: Path = root) -> subprocess.CompletedProcess[str]:
+def invoke(
+    args: list[str],
+    *,
+    cwd: Path | None = None,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         args,
         cwd=cwd,
+        env=env,
         text=True,
         encoding="utf-8",
         errors="replace",
         capture_output=True,
         check=False,
     )
+
+
+def run(args: list[str]) -> subprocess.CompletedProcess[str]:
+    return invoke(args, cwd=root)
 
 
 def emit_codes(text: str) -> None:
@@ -56,6 +69,59 @@ print("PRIVATE_FILE_BODIES_PRINTED=false")
 print("PUBLIC_ARTIFACT_COUNT=0")
 print("PRIVATE_CONTENT_PUBLIC_EXPOSURE=false")
 print("VERIFIED_READ_SECRET_REUSED=true")
+
+read_token = os.environ.get("PRIVATE_REPO_READ_TOKEN", "")
+if not read_token:
+    print("RUNNER_INFRASTRUCTURE=FAIL")
+    print("FAILURE_CODE=PRIVATE_REPO_READ_TOKEN_MISSING")
+    raise SystemExit(1)
+
+root.mkdir(parents=True, exist_ok=False)
+init = invoke(["git", "init", "-q", str(root)])
+if init.returncode != 0:
+    print("RUNNER_INFRASTRUCTURE=FAIL")
+    print("FAILURE_CODE=PRIVATE_CHECKOUT_INIT_FAILED")
+    raise SystemExit(1)
+remote = invoke(["git", "-C", str(root), "remote", "add", "origin", private_repo_url])
+if remote.returncode != 0:
+    print("RUNNER_INFRASTRUCTURE=FAIL")
+    print("FAILURE_CODE=PRIVATE_REMOTE_ADD_FAILED")
+    raise SystemExit(1)
+
+basic = base64.b64encode(f"x-access-token:{read_token}".encode("utf-8")).decode("ascii")
+git_env = os.environ.copy()
+git_env.update(
+    {
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "http.https://github.com/.extraheader",
+        "GIT_CONFIG_VALUE_0": f"AUTHORIZATION: basic {basic}",
+    }
+)
+fetch = invoke(
+    [
+        "git",
+        "-C",
+        str(root),
+        "fetch",
+        "--quiet",
+        "--no-tags",
+        "--depth=1",
+        "origin",
+        "+refs/heads/worker/fmr005-repair-004:refs/remotes/origin/worker/fmr005-repair-004",
+        "+refs/heads/main:refs/remotes/origin/main",
+    ],
+    env=git_env,
+)
+if fetch.returncode != 0:
+    print("RUNNER_INFRASTRUCTURE=FAIL")
+    print("FAILURE_CODE=PRIVATE_EXACT_REFS_FETCH_FAILED")
+    raise SystemExit(1)
+checkout = invoke(["git", "-C", str(root), "checkout", "--quiet", "--detach", expected_sha])
+if checkout.returncode != 0:
+    print("RUNNER_INFRASTRUCTURE=FAIL")
+    print("FAILURE_CODE=PRIVATE_EXACT_SHA_CHECKOUT_FAILED")
+    raise SystemExit(1)
+
 actual_sha = run(["git", "rev-parse", "HEAD"]).stdout.strip()
 print(f"EXPECTED_PRIVATE_SHA={expected_sha}")
 print(f"ACTUAL_PRIVATE_SHA={actual_sha}")
@@ -64,22 +130,6 @@ if actual_sha != expected_sha:
     print("RUNNER_POLICY=FAIL")
     print("RUNNER_INFRASTRUCTURE=PASS")
     print("FAILURE_CODE=PRIVATE_BRANCH_SHA_MISMATCH")
-    raise SystemExit(1)
-
-fetch = run(
-    [
-        "git",
-        "fetch",
-        "--quiet",
-        "--no-tags",
-        "--depth=1",
-        "origin",
-        "+refs/heads/main:refs/remotes/origin/main",
-    ]
-)
-if fetch.returncode != 0:
-    print("RUNNER_INFRASTRUCTURE=FAIL")
-    print("FAILURE_CODE=ORIGIN_MAIN_FETCH_FAILED")
     raise SystemExit(1)
 
 print("EXACT_PRIVATE_SHA_BINDING=PASS")
