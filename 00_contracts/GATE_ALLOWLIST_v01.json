@@ -1,6 +1,6 @@
 {
   "document_id": "PUBLIC_RUNNER_GATE_ALLOWLIST_v01",
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "runner_repository": "TheGor-365/generative-film-factory-actions-runner",
   "source_of_truth": false,
   "arbitrary_shell_allowed": false,
@@ -40,6 +40,87 @@
             "unittest",
             "tests/test_validate_control_center.py"
           ]
+        }
+      ]
+    },
+    {
+      "gate_id": "FMR005_REPAIR004_VALIDATION_v01",
+      "enabled": true,
+      "private_repository": "TheGor-365/generative-film-factory-control-center",
+      "allowed_branches": [
+        "worker/fmr005-repair-004"
+      ],
+      "private_pull_request": 137,
+      "base_branch": "main",
+      "validator_set": "fmr005_repair004_v01",
+      "status_context": "public-runner/fmr005/repair004-validation",
+      "artifact_policy": "none",
+      "private_content_public_exposure": false,
+      "minimum_unit_test_count_exclusive": 58,
+      "expected_changed_paths": [
+        "04_research/FMR-005/normalized/01_RESEARCH_REPORT.md",
+        "04_research/FMR-005/normalized/08_VALIDATOR_CANDIDATES.json",
+        "04_research/FMR-005/normalized/10_IMPLEMENTATION_HANDOFF.md",
+        "04_research/FMR-005/normalized/MANIFEST.json",
+        "04_research/FMR-005/normalized/PACKAGE_VALIDATION_REPORT.json",
+        "04_research/FMR-005/repair_004/01_REPAIR_REPORT.md",
+        "04_research/FMR-005/repair_004/02_FINDING_DISPOSITION.json",
+        "04_research/FMR-005/repair_004/03_VALIDATION_REPORT.json",
+        "04_research/FMR-005/repair_004/MANIFEST.json",
+        "scripts/validate_fmr005_repair.py",
+        "tests/test_validate_fmr005_repair.py",
+        "tests/fixtures/fmr005_repair/valid_report_consistency_control.json",
+        "tests/fixtures/fmr005_repair/invalid_report_assertion_count_drift.json",
+        "tests/fixtures/fmr005_repair/invalid_report_claim_count_drift.json",
+        "tests/fixtures/fmr005_repair/invalid_report_status_drift.json",
+        "tests/fixtures/fmr005_repair/invalid_package_validation_report_drift.json"
+      ],
+      "commands": [
+        {
+          "command_id": "exact_changed_path_scope",
+          "implementation": "repository_controlled_runner_code"
+        },
+        {
+          "command_id": "control_center_validator",
+          "environment": {
+            "PYTHONDONTWRITEBYTECODE": "1"
+          },
+          "argv": [
+            "python",
+            "scripts/validate_control_center.py"
+          ]
+        },
+        {
+          "command_id": "fmr005_repair_validator",
+          "environment": {
+            "PYTHONDONTWRITEBYTECODE": "1"
+          },
+          "argv": [
+            "python",
+            "scripts/validate_fmr005_repair.py",
+            "--repo-root",
+            "."
+          ]
+        },
+        {
+          "command_id": "complete_unit_test_discovery",
+          "environment": {
+            "PYTHONDONTWRITEBYTECODE": "1"
+          },
+          "argv": [
+            "python",
+            "-m",
+            "unittest",
+            "discover",
+            "-s",
+            "tests",
+            "-p",
+            "test_*.py"
+          ]
+        },
+        {
+          "command_id": "patch_whitespace_check",
+          "implementation": "repository_controlled_runner_code"
         }
       ]
     }
