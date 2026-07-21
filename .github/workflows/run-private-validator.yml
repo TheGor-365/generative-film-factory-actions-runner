@@ -1,4 +1,4 @@
-name: Run Exact FMR005 Repair004 Gate 28a46b6
+name: Run Exact FMR005 Repair004 Gate 28a46b6 R2
 
 on:
   pull_request:
