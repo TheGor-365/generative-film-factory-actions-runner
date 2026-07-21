@@ -18,7 +18,10 @@ policy_error() {
 
 [[ "$PRIVATE_REPO" == "TheGor-365/generative-film-factory-control-center" ]] || policy_error "PRIVATE_REPO_NOT_ALLOWLISTED"
 [[ "$PRIVATE_SHA" =~ ^[0-9a-f]{40}$ ]] || policy_error "INVALID_PRIVATE_SHA"
-[[ "$STATUS_CONTEXT" == "public-runner/control-center/readonly-validation" ]] || policy_error "STATUS_CONTEXT_NOT_ALLOWLISTED"
+case "$STATUS_CONTEXT" in
+  "public-runner/control-center/readonly-validation"|"public-runner/fmr005/repair004-validation") ;;
+  *) policy_error "STATUS_CONTEXT_NOT_ALLOWLISTED" ;;
+esac
 [[ "$EXIT_CODE" =~ ^[0-9]+$ ]] || policy_error "INVALID_EXIT_CODE"
 [[ "$PUBLIC_RUN_ID" =~ ^[0-9]+$ ]] || policy_error "INVALID_PUBLIC_RUN_ID"
 [[ "$PUBLIC_JOB_ID" == "validate-private-sha" ]] || policy_error "INVALID_PUBLIC_JOB_ID"
