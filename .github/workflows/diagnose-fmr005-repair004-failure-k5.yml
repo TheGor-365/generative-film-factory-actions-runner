@@ -22,9 +22,9 @@ jobs:
           ref: worker/fmr005-repair-004
           token: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
           path: private-checkout
-          fetch-depth: 0
+          fetch-depth: 1
           fetch-tags: false
-          persist-credentials: false
+          persist-credentials: true
           show-progress: false
 
       - name: Emit sanitized deterministic component metadata
@@ -51,6 +51,7 @@ jobs:
             exit 1
           fi
 
+          git -C private-checkout fetch --quiet --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main
           git -C private-checkout rev-parse --verify refs/remotes/origin/main >/dev/null
           printf '%s\n' \
             'EXACT_PRIVATE_SHA_BINDING=PASS' \
