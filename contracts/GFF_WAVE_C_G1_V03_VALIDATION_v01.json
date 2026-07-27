@@ -1,0 +1,91 @@
+{
+  "contract_id": "GFF_WAVE_C_G1_V03_VALIDATION_v01",
+  "schema_version": "1.0.0",
+  "work_order_id": "RWO-GFF-WAVE-C-ACTIONS-EVIDENCE-001",
+  "gate_id": "GFF_WAVE_C_G1_V03_VALIDATION_v01",
+  "enabled": true,
+  "private_repository": "TheGor-365/generative-film-factory-control-center",
+  "allowed_branch": "main",
+  "status_context": "public-runner/gff/wave-c-validation",
+  "workflow_inputs": [
+    "private_sha"
+  ],
+  "private_sha_pattern": "^[0-9a-f]{40}$",
+  "result_vocabulary": [
+    "PASS",
+    "FAIL",
+    "ERROR",
+    "BLOCKED"
+  ],
+  "arbitrary_shell_allowed": false,
+  "arbitrary_paths_allowed": false,
+  "arbitrary_repositories_allowed": false,
+  "provider_configuration_inputs_allowed": false,
+  "ephemeral_deterministic_media_execution": true,
+  "network_media_provider_calls": false,
+  "paid_provider_calls": false,
+  "private_source_logging": false,
+  "private_media_logging": false,
+  "public_artifact_upload": false,
+  "audio_video_artifact_upload": false,
+  "cache": false,
+  "always_delete_private_checkout": true,
+  "always_delete_runtime_and_artifact_roots": true,
+  "component_roots": {
+    "core": "10_factory_mvp/app/core",
+    "onboarding_web": [
+      "10_factory_mvp/app/onboarding",
+      "10_factory_mvp/web"
+    ],
+    "story": "10_factory_mvp/app/story",
+    "media": "10_factory_mvp/media",
+    "ops": "10_factory_mvp/ops"
+  },
+  "fixed_matrix": [
+    "toolchain_preflight",
+    "core_official_tests_and_smokes",
+    "onboarding_web_official_tests_and_smokes",
+    "story_official_tests_and_smokes",
+    "media_official_tests_and_smokes",
+    "ops_official_tests_and_smokes",
+    "factory_validate_source",
+    "factory_doctor",
+    "clean_deterministic_run_a",
+    "verify_run_a",
+    "independent_clean_deterministic_run_b",
+    "verify_run_b",
+    "aggregate_two_run_release_check",
+    "repository_declared_wave_c_v03_stage_check",
+    "always_cleanup"
+  ],
+  "public_evidence": {
+    "allowed": [
+      "exact_private_sha",
+      "fixed_command_ids",
+      "exit_codes",
+      "counts",
+      "schema_versions",
+      "sha256",
+      "stable_blocker_and_error_codes",
+      "workflow_run_and_job_identity",
+      "cleanup_flags"
+    ],
+    "forbidden": [
+      "private_source_text",
+      "private_file_listing",
+      "prompts",
+      "provider_payloads",
+      "credentials",
+      "generated_media_bytes",
+      "repository_archives"
+    ]
+  },
+  "no_fake_green": true,
+  "wave_c_execution_resolution": {
+    "source": "private_repository_factory_cli_usage",
+    "allowed_stage_pattern": "^(wave_c_[a-z0-9_]*v03[a-z0-9_]*|v03_[a-z0-9_]*wave_c[a-z0-9_]*)$",
+    "required_unique_match": true,
+    "workflow_input_override_allowed": false,
+    "allowed_command_pattern": "^(wave-c-v03[a-z0-9-]*|wave_c_v03[a-z0-9_]*)$"
+  }
+}
