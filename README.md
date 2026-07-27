@@ -58,3 +58,37 @@ Commands and changed paths are resolved from repository-controlled code and the 
 ## Current phase
 
 The FMR-005 Repair 004 gate is submitted for exact-head static and security review. Secret configuration, workflow dispatch, private writeback, and runner-result acceptance remain prohibited until separately authorized by the master coordinator.
+
+## Wave C exact Actions evidence gate
+
+```text
+WORK_ORDER_ID=RWO-GFF-WAVE-C-ACTIONS-EVIDENCE-001
+GATE_ID=GFF_WAVE_C_G1_V03_VALIDATION_v01
+WORKFLOW=.github/workflows/run-wave-c-exact-evidence.yml
+CONTRACT=contracts/GFF_WAVE_C_G1_V03_VALIDATION_v01.json
+RUNNER=scripts/run_wave_c_exact_gate.sh
+RUNNER_MODULES=scripts/wave_c/*.sh
+PRIVATE_REPOSITORY=TheGor-365/generative-film-factory-control-center
+ALLOWED_BRANCH=main
+STATUS_CONTEXT=public-runner/gff/wave-c-validation
+WORKFLOW_INPUTS=private_sha_only
+```
+
+The Wave C gate proves that private `main` equals the coordinator-frozen exact SHA, detaches that checkout, and runs a fixed source-controlled matrix: Ruby/toolchain preflight; Core, Onboarding/Web, Story, Media and Ops suites; `factory validate-source`; `factory doctor`; clean deterministic Run A and verification; independent clean deterministic Run B and verification; aggregate two-run release-check; and the unique repository-declared Wave C v03 command or stage.
+
+The private commands receive a sanitized allowlisted environment. Provider credentials and GitHub tokens are not forwarded. Deterministic synthetic media may exist only under the ephemeral runner temp root. The workflow contains no cache or upload action and always deletes the private checkout plus every runtime, artifact, report and evidence root.
+
+```text
+ARBITRARY_SHELL_INPUT=false
+ARBITRARY_PATH_INPUT=false
+PUBLIC_ARTIFACT_UPLOAD=false
+AUDIO_VIDEO_ARTIFACT_UPLOAD=false
+PRIVATE_SOURCE_LOGGING=false
+PRIVATE_MEDIA_LOGGING=false
+NETWORK_MEDIA_PROVIDER_CALLS=false
+PAID_PROVIDER_CALLS=false
+CACHE=false
+CLEANUP_ALWAYS=true
+```
+
+Source preparation does not authorize dispatch. Final execution remains blocked until the coordinator supplies `WAVE_C_INTEGRATION_HEAD=<exact 40-character private main SHA>` after CHAT 1–5 source returns are verified.
