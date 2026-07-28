@@ -1,16 +1,16 @@
 {
   "contract_id": "GFF_WAVE_C_G1_V03_VALIDATION_v01",
-  "schema_version": "2.0.0",
+  "schema_version": "2.0.1",
   "work_order_id": "RWO-GFF-WAVE-C-CONVERGENCE-ACTIONS-GATE-REPAIR-001",
   "gate_id": "GFF_WAVE_C_G1_V03_VALIDATION_v01",
   "enabled": true,
   "private_repository": "TheGor-365/generative-film-factory-control-center",
   "allowed_branch": "main",
+  "pinned_private_sha": "d245d7b7e832459779b8d4e89e21e87e130f213a",
+  "private_sha_source": "source_controlled_fixed_value",
   "runner_repository": "TheGor-365/generative-film-factory-actions-runner",
   "status_context": "public-runner/gff/wave-c-validation",
-  "workflow_inputs": [
-    "private_sha"
-  ],
+  "workflow_inputs": [],
   "private_sha_pattern": "^[0-9a-f]{40}$",
   "result_vocabulary": [
     "PASS",
