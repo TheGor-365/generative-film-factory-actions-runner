@@ -12,4 +12,5 @@ while IFS= read -r path; do
 done < <(find scripts -type f -name '*.sh' | LC_ALL=C sort)
 printf '%s\n' "BASH_SYNTAX=PASS"
 
+python3 scripts/wave_c/test_source_sha_propagation.py
 python3 scripts/wave_c/test_gate_contract.py
