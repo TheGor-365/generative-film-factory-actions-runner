@@ -1,0 +1,99 @@
+{
+  "contract_id": "GFF_WAVE_C_G1_V03_VALIDATION_v01",
+  "schema_version": "2.0.0",
+  "work_order_id": "RWO-GFF-WAVE-C-CONVERGENCE-ACTIONS-GATE-REPAIR-001",
+  "gate_id": "GFF_WAVE_C_G1_V03_VALIDATION_v01",
+  "enabled": true,
+  "private_repository": "TheGor-365/generative-film-factory-control-center",
+  "allowed_branch": "main",
+  "runner_repository": "TheGor-365/generative-film-factory-actions-runner",
+  "status_context": "public-runner/gff/wave-c-validation",
+  "workflow_inputs": [
+    "private_sha"
+  ],
+  "private_sha_pattern": "^[0-9a-f]{40}$",
+  "result_vocabulary": [
+    "PASS",
+    "FAIL",
+    "ERROR",
+    "BLOCKED"
+  ],
+  "required_step_ids": [
+    "checkout_exact_sha",
+    "ruby_toolchain_preflight",
+    "core_component_matrix",
+    "onboarding_web_component_matrix",
+    "story_component_matrix",
+    "media_component_matrix",
+    "ops_component_matrix",
+    "validate_source",
+    "doctor",
+    "pilot_a",
+    "verify_a",
+    "pilot_b",
+    "verify_b",
+    "aggregate_release_check",
+    "cleanup"
+  ],
+  "additive_step_ids": [
+    "canonical_v03_executor",
+    "emit_runtime_evidence"
+  ],
+  "arbitrary_shell_allowed": false,
+  "arbitrary_paths_allowed": false,
+  "arbitrary_repositories_allowed": false,
+  "provider_configuration_inputs_allowed": false,
+  "ephemeral_deterministic_media_execution": true,
+  "network_media_provider_calls": false,
+  "paid_provider_calls": false,
+  "private_source_logging": false,
+  "private_media_logging": false,
+  "public_artifact_upload": false,
+  "audio_video_artifact_upload": false,
+  "repository_archive_upload": false,
+  "cache": false,
+  "always_delete_private_checkout": true,
+  "always_delete_runtime_and_artifact_roots": true,
+  "component_matrix_schema": "factory_component_matrix_summary_v02",
+  "legacy_component_summary_schema": "factory_component_test_summary_v01",
+  "actions_bundle_schema": "factory_actions_evidence_bundle_v01",
+  "actions_runtime_seed_schema": "factory_actions_evidence_runtime_seed_v01",
+  "canonical_v03_executor": {
+    "source_commit": "59c91f4830dc4738dd537ce79a13ef591e4c96d8",
+    "implementation_commit": "9a4829452cd3947b7ef2913c62d45890b5a31b29",
+    "command": "wave-c-v03-cycle",
+    "argv_shape": [
+      "ruby",
+      "10_factory_mvp/ops/bin/factory",
+      "wave-c-v03-cycle",
+      "--source-sha",
+      "<exact-private-sha>"
+    ],
+    "output_schema": "factory_wave_c_release_evidence_bundle_v01",
+    "workflow_input_override_allowed": false,
+    "binding_status": "BOUND",
+    "invocation_status": "READY_IN_PRIVATE_SOURCE"
+  },
+  "live_ops_schema_authority": {
+    "official_actions_evidence_validator_blob_sha": "6235c43d5900e9c7c5e3221594f254d6a8428af5",
+    "validation_canonical_hash_blob_sha": "efaaa5d12139714be2d0ccc45cda29cf9186d8cd",
+    "required_component_names": [
+      "core",
+      "onboarding_web",
+      "story",
+      "media",
+      "ops"
+    ],
+    "required_evidence_ref_names": [
+      "component_matrix",
+      "doctor",
+      "run_a_report",
+      "verify_a",
+      "run_b_report",
+      "verify_b",
+      "aggregate_index",
+      "release_check"
+    ]
+  },
+  "no_fake_green": true
+}
