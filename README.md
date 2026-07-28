@@ -51,7 +51,7 @@ Commands and changed paths are resolved from repository-controlled code and the 
 - Private access is configured outside Git only after separate authorization.
 - Checkout credentials are not persisted.
 - Full private files, repository archives, research bodies, client content, provider payloads, and media must not be emitted or uploaded.
-- No cache, artifact upload, deployment, release, package publishing, self-hosted runner, or production orchestration is included.
+- No cache action, artifact upload, deployment, release, package publishing, self-hosted runner, or production orchestration is included.
 - Runner `PASS` applies only to the named gate and exact private SHA. It is not research, critic, human, legal, artistic, client, production, or release acceptance.
 - A gate `ERROR` or infrastructure failure is not a content `FAIL`.
 
@@ -62,23 +62,45 @@ The FMR-005 Repair 004 gate is submitted for exact-head static and security revi
 ## Wave C exact Actions evidence gate
 
 ```text
-WORK_ORDER_ID=RWO-GFF-WAVE-C-ACTIONS-EVIDENCE-001
+WORK_ORDER_ID=RWO-GFF-WAVE-C-CONVERGENCE-ACTIONS-GATE-REPAIR-001
 GATE_ID=GFF_WAVE_C_G1_V03_VALIDATION_v01
 WORKFLOW=.github/workflows/run-wave-c-exact-evidence.yml
 CONTRACT=contracts/GFF_WAVE_C_G1_V03_VALIDATION_v01.json
 RUNNER=scripts/run_wave_c_exact_gate.sh
-RUNNER_MODULES=scripts/wave_c/*.sh
+EVIDENCE_HELPER=scripts/wave_c/evidence_contract.py
+COMPATIBILITY_FIXTURE=scripts/wave_c/test_gate_contract.py
 PRIVATE_REPOSITORY=TheGor-365/generative-film-factory-control-center
 ALLOWED_BRANCH=main
 STATUS_CONTEXT=public-runner/gff/wave-c-validation
 WORKFLOW_INPUTS=private_sha_only
 ```
 
-The Wave C gate proves that private `main` equals the coordinator-frozen exact SHA, detaches that checkout, and runs a fixed source-controlled matrix: Ruby/toolchain preflight; Core, Onboarding/Web, Story, Media and Ops suites; `factory validate-source`; `factory doctor`; clean deterministic Run A and verification; independent clean deterministic Run B and verification; aggregate two-run release-check; and the unique repository-declared Wave C v03 command or stage.
+The repaired workflow exposes stable Actions step IDs for exact checkout, Ruby/toolchain preflight, all five component matrices, source validation, doctor, two independent deterministic pilots and verifies, aggregate release-check, canonical v03 execution, runtime evidence emission and cleanup.
 
-The private commands receive a sanitized allowlisted environment. Provider credentials and GitHub tokens are not forwarded. Deterministic synthetic media may exist only under the ephemeral runner temp root. The workflow contains no cache or upload action and always deletes the private checkout plus every runtime, artifact, report and evidence root.
+The component result is emitted in two additive forms:
 
 ```text
+factory_component_test_summary_v01
+factory_component_matrix_summary_v02
+```
+
+The legacy summary remains the input to the two-run aggregate. The v02 matrix is bound to the exact private SHA and contains the five component outcomes, command IDs, command outcomes, exit codes, command evidence hashes, component hashes and a canonical `summary_sha256`.
+
+The gate emits `factory_actions_evidence_runtime_v01`, containing every non-API field required to reconstruct `factory_actions_evidence_bundle_v01`. Numeric workflow/job IDs, run attempt, API step outcomes and final conclusions are added only after completion from authenticated GitHub Actions APIs. They are never invented inside the workflow.
+
+The canonical v03 step accepts no workflow override. Until the exact CHAT 5 implementation commit is present in this contract, it returns `BLOCKED` and does not invoke a guessed command. The fixed intended command is:
+
+```text
+factory wave-c-v03-cycle --source-sha <exact-private-sha>
+```
+
+The runner does not probe CLI usage or invoke the nonexistent top-level `factory wave-c-v03` command. Final source binding requires replacing `BLOCKED_PENDING_CHAT5_EXECUTOR_COMMIT` with the exact implementation SHA after that commit lands and is read live.
+
+```text
+PASS=all fixed checks and canonical v03 executor completed successfully
+FAIL=executed content or deterministic validation returned nonzero
+ERROR=runner checkout token toolchain timeout or infrastructure failure
+BLOCKED=required source-controlled command input or evidence is absent
 ARBITRARY_SHELL_INPUT=false
 ARBITRARY_PATH_INPUT=false
 PUBLIC_ARTIFACT_UPLOAD=false
@@ -87,8 +109,10 @@ PRIVATE_SOURCE_LOGGING=false
 PRIVATE_MEDIA_LOGGING=false
 NETWORK_MEDIA_PROVIDER_CALLS=false
 PAID_PROVIDER_CALLS=false
-CACHE=false
+CACHE_ACTION_PRESENT=false
 CLEANUP_ALWAYS=true
 ```
 
-Source preparation does not authorize dispatch. Final execution remains blocked until the coordinator supplies `WAVE_C_INTEGRATION_HEAD=<exact 40-character private main SHA>` after CHAT 1–5 source returns are verified.
+The `cleanup` step always deletes the private checkout and all runtime, artifact, report and evidence roots. It emits compact deletion flags and proves that no upload or cache action is present.
+
+Source preparation does not authorize merge, ready-for-review transition or workflow dispatch. Final execution remains blocked until the coordinator freezes `WAVE_C_INTEGRATION_HEAD=<exact 40-character private main SHA>`.
