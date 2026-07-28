@@ -70,7 +70,8 @@
     ],
     "output_schema": "factory_wave_c_release_evidence_bundle_v01",
     "workflow_input_override_allowed": false,
-    "binding_status": "BLOCKED_PENDING_CHAT5_CLI_ROUTE"
+    "binding_status": "BOUND",
+    "invocation_status": "BLOCKED_PENDING_CHAT5_CLI_ROUTE"
   },
   "live_ops_schema_authority": {
     "official_actions_evidence_validator_blob_sha": "6235c43d5900e9c7c5e3221594f254d6a8428af5",
