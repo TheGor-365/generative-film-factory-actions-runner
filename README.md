@@ -88,13 +88,13 @@ The legacy summary remains the input to the two-run aggregate. The v02 matrix is
 
 The gate emits `factory_actions_evidence_runtime_v01`, containing every non-API field required to reconstruct `factory_actions_evidence_bundle_v01`. Numeric workflow/job IDs, run attempt, API step outcomes and final conclusions are added only after completion from authenticated GitHub Actions APIs. They are never invented inside the workflow.
 
-The canonical v03 step accepts no workflow override. Until the exact CHAT 5 implementation commit is present in this contract, it returns `BLOCKED` and does not invoke a guessed command. The fixed intended command is:
+The canonical v03 step accepts no workflow override. The exact executor implementation commit is pinned in this contract. Until its CLI route is loaded in the frozen private SHA, the step returns `BLOCKED` and does not invoke a guessed command. The fixed intended command is:
 
 ```text
 factory wave-c-v03-cycle --source-sha <exact-private-sha>
 ```
 
-The runner does not probe CLI usage or invoke the nonexistent top-level `factory wave-c-v03` command. Final source binding requires replacing `BLOCKED_PENDING_CHAT5_EXECUTOR_COMMIT` with the exact implementation SHA after that commit lands and is read live.
+The runner does not probe CLI usage or invoke the nonexistent top-level `factory wave-c-v03` command. The current exact implementation binding is `9a4829452cd3947b7ef2913c62d45890b5a31b29`; invocation remains blocked until the private CLI exposes `wave-c-v03-cycle`.
 
 ```text
 PASS=all fixed checks and canonical v03 executor completed successfully
