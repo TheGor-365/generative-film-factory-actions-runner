@@ -2,11 +2,6 @@ name: Run Wave C Exact Actions Evidence
 
 on:
   workflow_dispatch:
-    inputs:
-      private_sha:
-        description: Coordinator-frozen exact lowercase 40-character private main SHA
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -24,13 +19,19 @@ jobs:
       GATE_ID: GFF_WAVE_C_G1_V03_VALIDATION_v01
       PRIVATE_REPO: TheGor-365/generative-film-factory-control-center
       PRIVATE_BRANCH: main
-      PRIVATE_SHA: ${{ inputs.private_sha }}
+      PRIVATE_SHA: d245d7b7e832459779b8d4e89e21e87e130f213a
       RUNNER_REPO: ${{ github.repository }}
       RUNNER_SHA: ${{ github.sha }}
       STATUS_CONTEXT: public-runner/gff/wave-c-validation
-      GFF_WAVE_C_WORK_ROOT: ${{ runner.temp }}/gff-wave-c-${{ github.run_id }}
 
     steps:
+      - name: Initialize ephemeral work root
+        id: initialize_work_root
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'GFF_WAVE_C_WORK_ROOT=%s\n' "$RUNNER_TEMP/gff-wave-c-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
+
       - name: Checkout public runner
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
