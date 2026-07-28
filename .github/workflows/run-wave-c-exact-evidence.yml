@@ -66,6 +66,25 @@ jobs:
         shell: bash
         run: bash scripts/run_wave_c_exact_gate.sh private-checkout checkout_exact_sha
 
+      - name: Provision required media toolchain
+        id: provision_media_toolchain
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          ffmpeg -version | sed -n '1p'
+          ffprobe -version | sed -n '1p'
+          printf '%s\n' \
+            "MEDIA_TOOLCHAIN_PROVISIONED=true" \
+            "NETWORK_MEDIA_PROVIDER_CALLS=false" \
+            "PAID_PROVIDER_CALLS=false" \
+            "PUBLIC_ARTIFACT_UPLOAD=false" \
+            "CACHE_CREATED=false" \
+            "NO_FAKE_GREEN=true"
+
       - name: Ruby and toolchain preflight
         id: ruby_toolchain_preflight
         if: ${{ always() }}
@@ -170,6 +189,13 @@ jobs:
         continue-on-error: true
         shell: bash
         run: bash scripts/run_wave_c_exact_gate.sh private-checkout emit_runtime_evidence
+
+      - name: Emit bounded failure diagnostics
+        id: emit_failure_diagnostics
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/wave_c/emit_failure_diagnostics.sh
 
       - name: Always cleanup private checkout and runtime roots
         id: cleanup
