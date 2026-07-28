@@ -19,12 +19,14 @@ jobs:
   validate-wave-c-exact-sha:
     name: validate-wave-c-exact-sha
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       GATE_ID: GFF_WAVE_C_G1_V03_VALIDATION_v01
       PRIVATE_REPO: TheGor-365/generative-film-factory-control-center
       PRIVATE_BRANCH: main
       PRIVATE_SHA: ${{ inputs.private_sha }}
+      RUNNER_REPO: ${{ github.repository }}
+      RUNNER_SHA: ${{ github.sha }}
       STATUS_CONTEXT: public-runner/gff/wave-c-validation
       GFF_WAVE_C_WORK_ROOT: ${{ runner.temp }}/gff-wave-c-${{ github.run_id }}
 
@@ -39,79 +41,198 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate fixed dispatch policy
+      - name: Initialize fixed gate policy
+        id: initialize_fixed_gate
         shell: bash
-        run: |
-          set -euo pipefail
-          [[ "$GATE_ID" == "GFF_WAVE_C_G1_V03_VALIDATION_v01" ]]
-          [[ "$PRIVATE_REPO" == "TheGor-365/generative-film-factory-control-center" ]]
-          [[ "$PRIVATE_BRANCH" == "main" ]]
-          [[ "$STATUS_CONTEXT" == "public-runner/gff/wave-c-validation" ]]
-          [[ "$PRIVATE_SHA" =~ ^[0-9a-f]{40}$ ]]
-          python - <<'PY'
-          import json
-          from pathlib import Path
-
-          contract = json.loads(Path("contracts/GFF_WAVE_C_G1_V03_VALIDATION_v01.json").read_text(encoding="utf-8"))
-          expected = {
-              "gate_id": "GFF_WAVE_C_G1_V03_VALIDATION_v01",
-              "private_repository": "TheGor-365/generative-film-factory-control-center",
-              "allowed_branch": "main",
-              "status_context": "public-runner/gff/wave-c-validation",
-              "workflow_inputs": ["private_sha"],
-              "arbitrary_shell_allowed": False,
-              "public_artifact_upload": False,
-              "cache": False,
-              "paid_provider_calls": False,
-              "network_media_provider_calls": False,
-              "no_fake_green": True,
-          }
-          for key, value in expected.items():
-              if contract.get(key) != value:
-                  raise SystemExit(f"POLICY_ERROR=CONTRACT_{key.upper()}_MISMATCH")
-          print("FIXED_DISPATCH_POLICY=PASS")
-          PY
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout initialize
 
       - name: Checkout allowlisted private main
+        id: checkout_private_source
+        continue-on-error: true
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: TheGor-365/generative-film-factory-control-center
           ref: main
           token: ${{ secrets.PRIVATE_REPO_READ_TOKEN }}
           path: private-checkout
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify private main head and detach exact SHA
+      - name: Verify and detach exact private SHA
+        id: checkout_exact_sha
+        if: ${{ always() }}
+        continue-on-error: true
         shell: bash
-        run: |
-          set -euo pipefail
-          actual_sha="$(git -C private-checkout rev-parse HEAD)"
-          if [[ "$actual_sha" != "$PRIVATE_SHA" ]]; then
-            printf '%s\n' "POLICY_ERROR=PRIVATE_MAIN_SHA_MISMATCH"
-            exit 2
-          fi
-          git -C private-checkout checkout --detach "$PRIVATE_SHA" >/dev/null 2>&1
-          [[ "$(git -C private-checkout rev-parse HEAD)" == "$PRIVATE_SHA" ]]
-          [[ -z "$(git -C private-checkout status --porcelain)" ]]
-          printf '%s\n' "PRIVATE_MAIN_SHA_MATCH=true" "DETACHED_PRIVATE_SHA_CHECKOUT=true"
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout checkout_exact_sha
 
-      - name: Execute fixed Wave C matrix
-        id: gate
+      - name: Ruby and toolchain preflight
+        id: ruby_toolchain_preflight
+        if: ${{ always() }}
+        continue-on-error: true
         shell: bash
-        run: bash scripts/run_wave_c_exact_gate.sh private-checkout
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout ruby_toolchain_preflight
+
+      - name: Core component matrix
+        id: core_component_matrix
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout core_component_matrix
+
+      - name: Onboarding and Web component matrix
+        id: onboarding_web_component_matrix
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout onboarding_web_component_matrix
+
+      - name: Story component matrix
+        id: story_component_matrix
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout story_component_matrix
+
+      - name: Media component matrix
+        id: media_component_matrix
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout media_component_matrix
+
+      - name: Ops component matrix
+        id: ops_component_matrix
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout ops_component_matrix
+
+      - name: Validate committed source contracts
+        id: validate_source
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout validate_source
+
+      - name: Run factory doctor
+        id: doctor
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout doctor
+
+      - name: Run clean deterministic pilot A
+        id: pilot_a
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout pilot_a
+
+      - name: Verify deterministic pilot A
+        id: verify_a
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout verify_a
+
+      - name: Run independent clean deterministic pilot B
+        id: pilot_b
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout pilot_b
+
+      - name: Verify deterministic pilot B
+        id: verify_b
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout verify_b
+
+      - name: Aggregate two-run release check
+        id: aggregate_release_check
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout aggregate_release_check
+
+      - name: Execute canonical Wave C v03 cycle
+        id: canonical_v03_executor
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout canonical_v03_executor
+
+      - name: Emit reconstructible runtime evidence
+        id: emit_runtime_evidence
+        if: ${{ always() }}
+        continue-on-error: true
+        shell: bash
+        run: bash scripts/run_wave_c_exact_gate.sh private-checkout emit_runtime_evidence
 
       - name: Always cleanup private checkout and runtime roots
+        id: cleanup
         if: ${{ always() }}
         shell: bash
         run: |
           set -euo pipefail
+          seed_path="$GFF_WAVE_C_WORK_ROOT/evidence/actions_runtime_seed.json"
+          seed_json="{}"
+          if [[ -f "$seed_path" ]]; then
+            seed_json="$(cat "$seed_path")"
+          fi
           rm -rf -- private-checkout "$GFF_WAVE_C_WORK_ROOT"
-          [[ ! -e private-checkout ]]
-          [[ ! -e "$GFF_WAVE_C_WORK_ROOT" ]]
+          private_deleted=false
+          runtime_deleted=false
+          artifact_deleted=false
+          [[ ! -e private-checkout ]] && private_deleted=true
+          [[ ! -e "$GFF_WAVE_C_WORK_ROOT" ]] && runtime_deleted=true
+          [[ ! -e "$GFF_WAVE_C_WORK_ROOT" ]] && artifact_deleted=true
+          printf '%s' "$seed_json" | python3 scripts/wave_c/evidence_contract.py cleanup-line \
+            --private-checkout-deleted "$private_deleted" \
+            --runtime-roots-deleted "$runtime_deleted" \
+            --artifact-roots-deleted "$artifact_deleted"
           printf '%s\n' \
-            "PRIVATE_CHECKOUT_DELETED=true" \
-            "RUNTIME_AND_ARTIFACT_ROOTS_DELETED=true" \
-            "PUBLIC_ARTIFACT_UPLOAD_ACTION_PRESENT=false" \
+            "PRIVATE_CHECKOUT_DELETED=$private_deleted" \
+            "RUNTIME_ROOTS_DELETED=$runtime_deleted" \
+            "ARTIFACT_ROOTS_DELETED=$artifact_deleted" \
+            "UPLOADS_CREATED=false" \
+            "CACHES_CREATED=false" \
+            "UPLOAD_ACTION_PRESENT=false" \
             "CACHE_ACTION_PRESENT=false" \
             "NO_FAKE_GREEN=true"
+          [[ "$private_deleted" == "true" ]]
+          [[ "$runtime_deleted" == "true" ]]
+          [[ "$artifact_deleted" == "true" ]]
+
+      - name: Enforce four-state gate conclusion
+        id: enforce_gate_conclusion
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GATE_RESULT: ${{ steps.emit_runtime_evidence.outputs.result }}
+        run: |
+          set -euo pipefail
+          result="${GATE_RESULT:-ERROR}"
+          case "$result" in
+            PASS)
+              printf '%s\n' "RESULT=PASS" "EXIT_CODE=0"
+              exit 0
+              ;;
+            FAIL)
+              printf '%s\n' "RESULT=FAIL" "EXIT_CODE=1"
+              exit 1
+              ;;
+            BLOCKED)
+              printf '%s\n' "RESULT=BLOCKED" "EXIT_CODE=3"
+              exit 1
+              ;;
+            ERROR)
+              printf '%s\n' "RESULT=ERROR" "EXIT_CODE=2"
+              exit 1
+              ;;
+            *)
+              printf '%s\n' "RESULT=ERROR" "POLICY_ERROR=UNKNOWN_GATE_RESULT" "EXIT_CODE=2"
+              exit 1
+              ;;
+          esac
