@@ -21,9 +21,11 @@ phase=$2
 : "${STATUS_CONTEXT:?STATUS_CONTEXT is required}"
 : "${GFF_WAVE_C_WORK_ROOT:?GFF_WAVE_C_WORK_ROOT is required}"
 
+readonly FIXED_PRIVATE_SHA="be76c8be95fa61d175c4c99ea16b4bf670510560"
 [[ "$GATE_ID" == "GFF_WAVE_C_G1_V03_VALIDATION_v01" ]] || policy_error "GATE_ID_NOT_ALLOWLISTED"
 [[ "$PRIVATE_REPO" == "TheGor-365/generative-film-factory-control-center" ]] || policy_error "PRIVATE_REPO_NOT_ALLOWLISTED"
 [[ "$PRIVATE_BRANCH" == "main" ]] || policy_error "PRIVATE_BRANCH_NOT_ALLOWLISTED"
+[[ "$PRIVATE_SHA" == "$FIXED_PRIVATE_SHA" ]] || policy_error "PRIVATE_SHA_NOT_ALLOWLISTED"
 [[ "$RUNNER_REPO" == "TheGor-365/generative-film-factory-actions-runner" ]] || policy_error "RUNNER_REPO_NOT_ALLOWLISTED"
 [[ "$STATUS_CONTEXT" == "public-runner/gff/wave-c-validation" ]] || policy_error "STATUS_CONTEXT_NOT_ALLOWLISTED"
 [[ "$PRIVATE_SHA" =~ ^[0-9a-f]{40}$ ]] || policy_error "INVALID_PRIVATE_SHA"
@@ -31,8 +33,11 @@ phase=$2
 
 contract_path="contracts/GFF_WAVE_C_G1_V03_VALIDATION_v01.json"
 helper_path="scripts/wave_c/evidence_contract.py"
+topology_path="scripts/wave_c/git_topology.sh"
 [[ -f "$contract_path" ]] || policy_error "GATE_CONTRACT_MISSING"
 [[ -f "$helper_path" ]] || policy_error "EVIDENCE_HELPER_MISSING"
+[[ -f "$topology_path" ]] || policy_error "TOPOLOGY_HELPER_MISSING"
+source "$topology_path"
 
 work_root=$GFF_WAVE_C_WORK_ROOT
 logs_root="$work_root/logs"
@@ -53,6 +58,7 @@ base_env=(
   "LC_ALL=C.UTF-8"
   "TMPDIR=$work_root/tmp"
   "XDG_CACHE_HOME=$work_root/tmp/xdg"
+  "GFF_SOURCE_SHA=$PRIVATE_SHA"
   "FACTORY_MVP_SOURCE_HEAD=$PRIVATE_SHA"
   "FACTORY_MVP_MODE=deterministic"
   "FACTORY_MVP_MEDIA_MODE=deterministic"
@@ -157,6 +163,10 @@ require_exact_checkout() {
     record_error "$step_id" infrastructure "${step_id}_checkout" DETACHED_SHA_MISMATCH
     return 1
   fi
+  if git -C "$private_checkout" symbolic-ref -q HEAD >/dev/null 2>&1; then
+    record_error "$step_id" infrastructure "${step_id}_checkout" PRIVATE_HEAD_NOT_DETACHED
+    return 1
+  fi
   return 0
 }
 
@@ -217,26 +227,27 @@ phase_initialize() {
 }
 
 phase_checkout_exact_sha() {
-  if [[ ! -d "$private_checkout/.git" ]]; then
-    record_error checkout_exact_sha infrastructure checkout_exact_sha PRIVATE_CHECKOUT_MISSING
+  local topology_output topology_exit
+  if topology_output=$(verify_private_checkout_topology "$private_checkout" "$PRIVATE_SHA" 2>&1); then
+    topology_exit=0
+  else
+    topology_exit=$?
+  fi
+
+  if [[ $topology_exit -eq 0 ]]; then
+    printf '%s\n' "$topology_output"
+    local digest
+    digest=$(sha_text "$PRIVATE_REPO|$PRIVATE_BRANCH|$PRIVATE_SHA|$topology_output")
+    record_result checkout_exact_sha infrastructure checkout_exact_sha PASS 0 "$digest"
+    printf '%s\n' "PRIVATE_CHECKOUT_TOPOLOGY=PASS"
     return 0
   fi
-  local observed
-  observed=$(git -C "$private_checkout" rev-parse HEAD 2>/dev/null || true)
-  if [[ "$observed" != "$PRIVATE_SHA" ]]; then
-    record_error checkout_exact_sha infrastructure checkout_exact_sha PRIVATE_MAIN_SHA_MISMATCH
-    return 0
-  fi
-  git -C "$private_checkout" checkout --detach "$PRIVATE_SHA" >/dev/null 2>&1 || {
-    record_error checkout_exact_sha infrastructure checkout_exact_sha PRIVATE_DETACH_FAILED
-    return 0
-  }
-  if [[ "$(git -C "$private_checkout" rev-parse HEAD)" != "$PRIVATE_SHA" || -n "$(git -C "$private_checkout" status --porcelain)" ]]; then
-    record_error checkout_exact_sha infrastructure checkout_exact_sha PRIVATE_DETACHED_STATE_INVALID
-    return 0
-  fi
-  local digest
-  digest=$(sha_text "$PRIVATE_REPO|$PRIVATE_BRANCH|$PRIVATE_SHA|detached-clean")
-  record_result checkout_exact_sha infrastructure checkout_exact_sha PASS 0 "$digest"
-  printf '%s\n' "PRIVATE_MAIN_SHA_MATCH=true" "DETACHED_PRIVATE_SHA_CHECKOUT=true"
+
+  printf '%s\n' "$topology_output"
+  local code
+  code=$(printf '%s\n' "$topology_output" | sed -n 's/^TOPOLOGY_ERROR=//p' | tail -n 1)
+  [[ -n "$code" ]] || code=PRIVATE_TOPOLOGY_VERIFICATION_FAILED
+  record_error checkout_exact_sha infrastructure checkout_exact_sha "$code"
+  printf '%s\n' "PRIVATE_CHECKOUT_TOPOLOGY=ERROR" "TOPOLOGY_EXIT_CODE=$topology_exit"
+  return 0
 }
