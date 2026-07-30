@@ -139,6 +139,22 @@ class GateContractTest(unittest.TestCase):
         self.assertFalse(self.contract["arbitrary_shell_allowed"])
         self.assertFalse(self.contract["public_artifact_upload"])
         self.assertFalse(self.contract["cache"])
+        self.assertEqual([], self.contract["workflow_inputs"])
+
+    def test_private_checkout_topology_contract(self) -> None:
+        topology = self.contract["private_checkout_topology"]
+        self.assertEqual("allowlisted_main", topology["checkout_ref"])
+        self.assertEqual(0, topology["fetch_depth"])
+        self.assertTrue(topology["require_full_history"])
+        self.assertTrue(topology["record_observed_main_head"])
+        self.assertTrue(topology["require_pin_commit_exists"])
+        self.assertTrue(topology["require_pin_ancestor_of_allowlisted_main"])
+        self.assertTrue(topology["allow_main_equals_pin"])
+        self.assertTrue(topology["allow_main_descendant_of_pin"])
+        self.assertFalse(topology["require_main_equals_pin"])
+        self.assertTrue(topology["detach_exact_pin"])
+        self.assertTrue(topology["require_detached_head_equals_pin"])
+        self.assertTrue(topology["require_clean_worktree"])
 
     def test_component_matrix_v02_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -157,7 +173,7 @@ class GateContractTest(unittest.TestCase):
                 "media": "media_component_matrix",
                 "ops": "ops_component_matrix",
             }
-            for index, (name, step_id) in enumerate(mapping.items(), start=1):
+            for name, step_id in mapping.items():
                 state["records"].append(
                     {
                         "step_id": step_id,
@@ -196,17 +212,34 @@ class GateContractTest(unittest.TestCase):
         self.assertEqual("ERROR", helper.overall_outcome(["FAIL", "ERROR"]))
         self.assertEqual("BLOCKED", helper.overall_outcome([]))
 
-    def test_workflow_security_and_probe_removal(self) -> None:
+    def test_workflow_security_and_topology(self) -> None:
         workflow = (ROOT / ".github" / "workflows" / "run-wave-c-exact-evidence.yml").read_text(encoding="utf-8")
-        all_source = "\n".join(path.read_text(encoding="utf-8") for path in (ROOT / "scripts").rglob("*") if path.is_file() and path.suffix in {".py", ".sh"} and path.name != "test_gate_contract.py")
+        production_paths = (
+            ROOT / "scripts" / "run_wave_c_exact_gate.sh",
+            ROOT / "scripts" / "wave_c" / "lib.sh",
+            ROOT / "scripts" / "wave_c" / "components.sh",
+            ROOT / "scripts" / "wave_c" / "runtime.sh",
+            ROOT / "scripts" / "wave_c" / "evidence.sh",
+            ROOT / "scripts" / "wave_c" / "git_topology.sh",
+            ROOT / "scripts" / "wave_c" / "evidence_contract.py",
+            ROOT / "scripts" / "wave_c" / "emit_failure_diagnostics.sh",
+        )
+        all_source = "\n".join(path.read_text(encoding="utf-8") for path in production_paths)
         for step_id in helper.REQUIRED_STEPS:
             self.assertIn(f"id: {step_id}", workflow)
         self.assertIn("id: canonical_v03_executor", workflow)
+        self.assertIn("repository: TheGor-365/generative-film-factory-control-center", workflow)
+        self.assertRegex(workflow, r"(?m)^\s+ref: main$")
+        self.assertRegex(workflow, r"(?m)^\s+fetch-depth: 0$")
+        self.assertNotIn("inputs:", workflow)
+        self.assertNotIn("${{ inputs.", workflow)
         self.assertNotIn("actions/upload-artifact", workflow)
         self.assertNotIn("actions/cache", workflow)
         self.assertNotIn("__wave_c_execution_probe__", all_source)
         self.assertIsNone(re.search(r"ruby\s+[^\n]*factory[^\n]*\swave-c-v03(?:\s|$)", all_source))
         self.assertNotIn("eval ", all_source)
+        self.assertNotIn("PRIVATE_MAIN_SHA_MISMATCH", all_source)
+        self.assertNotIn("PRIVATE_MAIN_SHA_MATCH", all_source)
 
     def test_runtime_and_contract_executor_binding_match(self) -> None:
         runtime = (ROOT / "scripts" / "wave_c" / "runtime.sh").read_text(encoding="utf-8")
@@ -222,6 +255,7 @@ if __name__ == "__main__":
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     if result.wasSuccessful():
         print("LIVE_OPS_SCHEMA_COMPATIBILITY=PASS")
+        print("PRIVATE_CHECKOUT_TOPOLOGY_CONTRACT=PASS")
         print("NONEXISTENT_COMMAND_PROBE_REMOVED=true")
         print("COMPONENT_MATRIX_V02_GENERATION_TEST=PASS")
         print("ACTIONS_BUNDLE_RECONSTRUCTION_FIXTURE=PASS")
