@@ -93,7 +93,6 @@ run_discovered_component() {
     [[ -n "$load_path" ]] && ruby_args+=("-I$load_path")
     ruby_args+=("$rel")
     run_private "$step_id" component "$command_id" "$private_checkout" \
-      "GFF_SOURCE_SHA=$PRIVATE_SHA" \
       "FACTORY_MVP_RUNTIME_ROOT=$per_command_root/runtime" \
       "FACTORY_MVP_ARTIFACT_ROOT=$per_command_root/artifacts" \
       "FACTORY_MVP_REPORT_PATH=$per_command_root/report.json" \
