@@ -24,6 +24,12 @@ phase_emit_runtime_evidence() {
       --binding-a "$run_a_binding" \
       --binding-b "$run_b_binding" \
       --two-run-binding "$two_run_binding" \
+      --expected-report-a "$run_a_root/pilot-report.json" \
+      --expected-report-b "$run_b_root/pilot-report.json" \
+      --expected-runtime-root-a "$run_a_root/runtime" \
+      --expected-artifact-root-a "$run_a_root/artifacts" \
+      --expected-runtime-root-b "$run_b_root/runtime" \
+      --expected-artifact-root-b "$run_b_root/artifacts" \
       > "$evidence_root/runtime-report-binding-output.log"
     cat "$evidence_root/runtime-report-binding-output.log"
   else
