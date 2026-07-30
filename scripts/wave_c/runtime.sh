@@ -2,6 +2,8 @@
 set -uo pipefail
 
 factory_bin="10_factory_mvp/ops/bin/factory"
+report_binding_helper="scripts/wave_c/report_discovery.py"
+[[ -f "$report_binding_helper" ]] || policy_error "REPORT_BINDING_HELPER_MISSING"
 CHAT5_EXECUTOR_COMMIT="$(python3 - "$contract_path" <<'PY2'
 import json
 import re
@@ -45,6 +47,24 @@ phase_doctor() {
   fi
 }
 
+record_report_helper_result() {
+  local step_id=$1
+  local category=$2
+  local command_id=$3
+  local log_file=$4
+  local command_exit=$5
+  local outcome=PASS
+  [[ $command_exit -eq 0 ]] || outcome=FAIL
+  local digest
+  digest=$(sha256sum "$log_file" | awk '{print $1}')
+  local codes=()
+  local code
+  while IFS= read -r code; do
+    [[ -n "$code" ]] && codes+=("$code")
+  done < <(extract_stable_codes "$log_file" 2>/dev/null || true)
+  record_result "$step_id" "$category" "$command_id" "$outcome" "$command_exit" "$digest" "${codes[@]}"
+}
+
 run_pilot_phase() {
   local step_id=$1
   local run_root=$2
@@ -53,15 +73,33 @@ run_pilot_phase() {
   mkdir -p "$run_root"
   local runtime_root="$run_root/runtime"
   local artifact_root="$run_root/artifacts"
-  local report_path="$run_root/pilot-report.json"
+  local normalized_report="$run_root/pilot-report.json"
+  local binding_path="$run_root/report-binding.json"
+  local started_marker="$run_root/pilot-started.marker"
+  : > "$started_marker"
   run_private "$step_id" pilot "$step_id" "$private_checkout" \
     "FACTORY_MVP_RUNTIME_ROOT=$runtime_root" \
     "FACTORY_MVP_ARTIFACT_ROOT=$artifact_root" \
-    "FACTORY_MVP_REPORT_PATH=$report_path" \
+    "FACTORY_MVP_REPORT_PATH=$normalized_report" \
     -- ruby "$factory_bin" pilot --mode deterministic
-  if [[ ! -f "$report_path" ]]; then
-    record_missing "$step_id" pilot "${step_id}_report" "${step_id^^}_REPORT_MISSING"
+
+  local binding_log="$logs_root/${step_id}_report_binding.log"
+  local binding_exit=0
+  if python3 "$report_binding_helper" bind-pilot \
+    --cli-log "$logs_root/${step_id}.log" \
+    --expected-runtime-root "$runtime_root" \
+    --expected-artifact-root "$artifact_root" \
+    --expected-source-sha "$PRIVATE_SHA" \
+    --expected-mode deterministic \
+    --not-before-file "$started_marker" \
+    --normalized-report "$normalized_report" \
+    --binding-output "$binding_path" >"$binding_log" 2>&1; then
+    binding_exit=0
+  else
+    binding_exit=$?
   fi
+  cat "$binding_log"
+  record_report_helper_result "$step_id" pilot "${step_id}_report_binding" "$binding_log" "$binding_exit"
 }
 
 phase_pilot_a() { run_pilot_phase pilot_a "$run_a_root"; }
@@ -95,13 +133,33 @@ run_verify_phase() {
   local run_root=$2
   factory_available "$step_id" || return 0
   local report_path="$run_root/pilot-report.json"
-  if [[ ! -f "$report_path" ]]; then
-    record_missing "$step_id" verify "${step_id}_report" "${step_id^^}_REPORT_MISSING"
+  local binding_path="$run_root/report-binding.json"
+  if [[ ! -f "$report_path" || ! -f "$binding_path" ]]; then
+    record_missing "$step_id" verify "${step_id}_binding" "${step_id^^}_REPORT_BINDING_MISSING"
     return 0
   fi
+
+  local validation_log="$logs_root/${step_id}_report_binding.log"
+  local validation_exit=0
+  if python3 "$report_binding_helper" validate-binding \
+    --binding "$binding_path" \
+    --expected-report "$report_path" \
+    --expected-runtime-root "$run_root/runtime" \
+    --expected-artifact-root "$run_root/artifacts" >"$validation_log" 2>&1; then
+    validation_exit=0
+  else
+    validation_exit=$?
+  fi
+  if [[ $validation_exit -ne 0 ]]; then
+    cat "$validation_log"
+    record_report_helper_result "$step_id" verify "${step_id}_report_binding" "$validation_log" "$validation_exit"
+    return 0
+  fi
+  record_report_helper_result "$step_id" verify "${step_id}_report_binding" "$validation_log" 0
+
   local manifest_path
-  manifest_path=$(json_string_field "$report_path" manifest_path 2>/dev/null || true)
-  if [[ -z "$manifest_path" || ! -f "$manifest_path" ]]; then
+  manifest_path=$(json_string_field "$binding_path" manifest_path 2>/dev/null || true)
+  if [[ -z "$manifest_path" ]]; then
     record_missing "$step_id" verify "${step_id}_manifest" "${step_id^^}_MANIFEST_PATH_MISSING"
     return 0
   fi
@@ -117,10 +175,34 @@ phase_aggregate_release_check() {
   factory_available aggregate_release_check || return 0
   local run_a_report="$run_a_root/pilot-report.json"
   local run_b_report="$run_b_root/pilot-report.json"
-  if [[ ! -f "$run_a_report" || ! -f "$run_b_report" || ! -f "$doctor_path" || ! -f "$component_summary_path" ]]; then
+  local run_a_binding="$run_a_root/report-binding.json"
+  local run_b_binding="$run_b_root/report-binding.json"
+  local two_run_binding="$aggregate_root/two-run-binding.json"
+  if [[ ! -f "$run_a_report" || ! -f "$run_b_report" || ! -f "$run_a_binding" || ! -f "$run_b_binding" || ! -f "$doctor_path" || ! -f "$component_summary_path" ]]; then
     record_missing aggregate_release_check aggregate aggregate_release_check AGGREGATE_INPUTS_MISSING
     return 0
   fi
+
+  local binding_log="$logs_root/aggregate_two_run_binding.log"
+  local binding_exit=0
+  if python3 "$report_binding_helper" validate-two-run \
+    --binding-a "$run_a_binding" \
+    --binding-b "$run_b_binding" \
+    --expected-report-a "$run_a_report" \
+    --expected-report-b "$run_b_report" \
+    --expected-runtime-root-a "$run_a_root/runtime" \
+    --expected-artifact-root-a "$run_a_root/artifacts" \
+    --expected-runtime-root-b "$run_b_root/runtime" \
+    --expected-artifact-root-b "$run_b_root/artifacts" \
+    --output "$two_run_binding" >"$binding_log" 2>&1; then
+    binding_exit=0
+  else
+    binding_exit=$?
+  fi
+  cat "$binding_log"
+  record_report_helper_result aggregate_release_check aggregate aggregate_two_run_binding "$binding_log" "$binding_exit"
+  [[ $binding_exit -eq 0 ]] || return 0
+
   run_private aggregate_release_check aggregate aggregate_release_check "$private_checkout" \
     "FACTORY_MVP_COMPONENT_TEST_SUMMARY_PATH=$component_summary_path" \
     "FACTORY_MVP_DOCTOR_REPORT_PATH=$doctor_path" \
