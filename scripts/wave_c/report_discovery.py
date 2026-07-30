@@ -13,6 +13,62 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from report_discovery_contract import *  # noqa: F403
 
+PER_RUN_BINDING_FIELDS = (
+    "schema_version",
+    "pilot_id",
+    "profile",
+    "status",
+    "mode",
+    "source_head",
+    "run_id",
+    "delivery_package_id",
+    "runtime_root",
+    "artifact_root",
+    "run_root",
+    "report_original_path",
+    "report_normalized_path",
+    "report_sha256",
+    "manifest_path",
+    "manifest_sha256",
+    "run_context_path",
+    "run_context_sha256",
+    "delivery_zip_path",
+    "delivery_zip_sha256",
+    "qc_report_path",
+    "qc_report_sha256",
+    "binding_sha256",
+)
+PER_RUN_BINDING_KEYS = frozenset(PER_RUN_BINDING_FIELDS)
+TWO_RUN_BINDING_FIELDS = (
+    "schema_version",
+    "source_head",
+    "mode",
+    "run_a",
+    "run_b",
+    "binding_sha256",
+)
+TWO_RUN_BINDING_KEYS = frozenset(TWO_RUN_BINDING_FIELDS)
+DISTINCT_RUN_FIELDS = (
+    "run_id",
+    "delivery_package_id",
+    "runtime_root",
+    "artifact_root",
+    "run_root",
+    "report_original_path",
+    "report_normalized_path",
+    "report_sha256",
+    "manifest_path",
+    "manifest_sha256",
+)
+
+
+def require_exact_keys(payload: dict[str, Any], expected: frozenset[str], code: str) -> None:
+    observed = frozenset(payload)
+    if observed != expected:
+        missing = ",".join(sorted(expected - observed)) or "none"
+        extra = ",".join(sorted(observed - expected)) or "none"
+        raise EvidenceError(code, f"missing={missing};extra={extra}")
+
 
 def atomic_copy(source: Path, target: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -34,7 +90,10 @@ def write_json(path: Path, payload: dict[str, Any]) -> None:
     if path.is_symlink():
         raise EvidenceError("BINDING_OUTPUT_SYMLINK")
     temp = path.with_name(f".{path.name}.tmp-{os.getpid()}")
-    temp.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n", encoding="utf-8")
+    temp.write_text(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
     os.replace(temp, path)
 
 
@@ -93,6 +152,8 @@ def bind_pilot(args: argparse.Namespace) -> None:
     validate_context(report, context_path)
 
     normalized_report = Path(args.normalized_report)
+    if normalized_report != runtime_root.parent / "pilot-report.json":
+        raise EvidenceError("NORMALIZED_REPORT_PATH_BINDING_MISMATCH")
     if normalized_report.resolve(strict=False) == report_path.resolve(strict=True):
         raise EvidenceError("NORMALIZED_REPORT_REUSES_ORIGINAL")
     atomic_copy(report_path, normalized_report)
@@ -128,6 +189,7 @@ def bind_pilot(args: argparse.Namespace) -> None:
         "qc_report_sha256": qc_sha,
     }
     binding["binding_sha256"] = self_hash(binding, "binding_sha256")
+    require_exact_keys(binding, PER_RUN_BINDING_KEYS, "BINDING_CLOSED_SCHEMA_MISMATCH")
     write_json(Path(args.binding_output), binding)
     print("PILOT_REPORT_BINDING=PASS")
     print(f"PILOT_RUN_ID={binding['run_id']}")
@@ -140,6 +202,7 @@ def bind_pilot(args: argparse.Namespace) -> None:
 
 def load_binding(path: Path) -> dict[str, Any]:
     binding = read_object(path, "BINDING_JSON_INVALID")
+    require_exact_keys(binding, PER_RUN_BINDING_KEYS, "BINDING_CLOSED_SCHEMA_MISMATCH")
     require_equal(binding, "schema_version", BINDING_SCHEMA, "BINDING_SCHEMA_MISMATCH")
     observed = binding.get("binding_sha256")
     if not isinstance(observed, str) or observed != self_hash(binding, "binding_sha256"):
@@ -154,22 +217,97 @@ def validate_binding(
     expected_runtime_root: Path | None = None,
     expected_artifact_root: Path | None = None,
 ) -> None:
+    require_exact_keys(binding, PER_RUN_BINDING_KEYS, "BINDING_CLOSED_SCHEMA_MISMATCH")
+    require_equal(binding, "schema_version", BINDING_SCHEMA, "BINDING_SCHEMA_MISMATCH")
+    observed_self_hash = binding.get("binding_sha256")
+    if not isinstance(observed_self_hash, str) or observed_self_hash != self_hash(binding, "binding_sha256"):
+        raise EvidenceError("BINDING_SELF_HASH_MISMATCH")
     runtime_root = Path(require_string(binding, "runtime_root", "BINDING_RUNTIME_ROOT_MISSING"))
     artifact_root = Path(require_string(binding, "artifact_root", "BINDING_ARTIFACT_ROOT_MISSING"))
     if expected_runtime_root is not None:
-        exact_root(runtime_root, expected_runtime_root, "BINDING_RUNTIME_ROOT_MISMATCH")
-    if expected_artifact_root is not None:
-        exact_root(artifact_root, expected_artifact_root, "BINDING_ARTIFACT_ROOT_MISMATCH")
-    if runtime_root.is_symlink() or not runtime_root.is_dir():
+        runtime_root = exact_root(runtime_root, expected_runtime_root, "BINDING_RUNTIME_ROOT_MISMATCH")
+    elif runtime_root.is_symlink() or not runtime_root.is_dir():
         raise EvidenceError("BINDING_RUNTIME_ROOT_INVALID")
-    if artifact_root.is_symlink() or not artifact_root.is_dir():
+    else:
+        runtime_root = runtime_root.resolve(strict=True)
+    if expected_artifact_root is not None:
+        artifact_root = exact_root(artifact_root, expected_artifact_root, "BINDING_ARTIFACT_ROOT_MISMATCH")
+    elif artifact_root.is_symlink() or not artifact_root.is_dir():
         raise EvidenceError("BINDING_ARTIFACT_ROOT_INVALID")
+    else:
+        artifact_root = artifact_root.resolve(strict=True)
+
+    run_id = require_string(binding, "run_id", "BINDING_RUN_ID_MISSING")
+    run_root = confined_directory(
+        runtime_root,
+        require_string(binding, "run_root", "BINDING_RUN_ROOT_MISSING"),
+        "BINDING_RUN_ROOT_CONFINEMENT_FAILED",
+    )
+    if run_root != runtime_root / "pilot-runs" / run_id:
+        raise EvidenceError("BINDING_RUN_ROOT_SEMANTIC_MISMATCH")
+
     report_original = confined_regular_file(
         runtime_root,
         require_string(binding, "report_original_path", "BINDING_REPORT_ORIGINAL_MISSING"),
         "BINDING_ORIGINAL_REPORT_CONFINEMENT_FAILED",
     )
+    if report_original != run_root / "pilot_report.json":
+        raise EvidenceError("BINDING_ORIGINAL_REPORT_PATH_MISMATCH")
     report_normalized = Path(require_string(binding, "report_normalized_path", "BINDING_REPORT_NORMALIZED_MISSING"))
+    canonical_normalized = runtime_root.parent / "pilot-report.json"
+    if report_normalized != canonical_normalized:
+        raise EvidenceError("BINDING_NORMALIZED_REPORT_PATH_MISMATCH")
+    if expected_report is not None and report_normalized != expected_report:
+        raise EvidenceError("BINDING_NORMALIZED_REPORT_PATH_MISMATCH")
+    if report_normalized.is_symlink() or not report_normalized.is_file():
+        raise EvidenceError("BINDING_NORMALIZED_REPORT_SHA_MISMATCH")
+
+    original_payload = read_object(report_original, "BINDING_ORIGINAL_REPORT_JSON_INVALID")
+    normalized_payload = read_object(report_normalized, "BINDING_NORMALIZED_REPORT_JSON_INVALID")
+    if original_payload != normalized_payload:
+        raise EvidenceError("BINDING_REPORT_SEMANTIC_MISMATCH")
+    validate_report_identity(
+        original_payload,
+        expected_mode=require_string(binding, "mode", "BINDING_MODE_MISSING"),
+        expected_source_sha=require_string(binding, "source_head", "BINDING_SOURCE_SHA_MISSING"),
+    )
+
+    semantic_fields = {
+        "pilot_id": "pilot_id",
+        "profile": "profile",
+        "status": "status",
+        "mode": "mode",
+        "source_head": "source_head",
+        "run_id": "run_id",
+        "delivery_package_id": "delivery_package_id",
+        "runtime_root": "runtime_root",
+        "artifact_root": "artifact_root",
+        "run_root": "run_root",
+        "report_original_path": "report_path",
+        "manifest_path": "manifest_path",
+        "run_context_path": "run_context_path",
+        "delivery_zip_path": "delivery_zip_path",
+        "qc_report_path": "qc_report_path",
+        "manifest_sha256": "manifest_sha256",
+        "delivery_zip_sha256": "delivery_zip_sha256",
+        "qc_report_sha256": "qc_report_sha256",
+    }
+    for binding_key, report_key in semantic_fields.items():
+        if binding.get(binding_key) != original_payload.get(report_key):
+            raise EvidenceError("BINDING_REPORT_SEMANTIC_MISMATCH", binding_key)
+
+    core_db = confined_regular_file(
+        runtime_root,
+        require_string(original_payload, "core_db_path", "REPORT_CORE_DB_PATH_MISSING"),
+        "BINDING_CORE_DB_CONFINEMENT_FAILED",
+    )
+    if core_db.parent != run_root:
+        raise EvidenceError("BINDING_CORE_DB_RUN_MISMATCH")
+    delivery_root = confined_directory(
+        artifact_root,
+        require_string(original_payload, "delivery_root", "REPORT_DELIVERY_ROOT_MISSING"),
+        "BINDING_DELIVERY_ROOT_CONFINEMENT_FAILED",
+    )
     manifest = confined_regular_file(
         artifact_root,
         require_string(binding, "manifest_path", "BINDING_MANIFEST_MISSING"),
@@ -190,8 +328,24 @@ def validate_binding(
         require_string(binding, "qc_report_path", "BINDING_QC_REPORT_MISSING"),
         "BINDING_QC_REPORT_CONFINEMENT_FAILED",
     )
-    if report_normalized.is_symlink() or not report_normalized.is_file():
-        raise EvidenceError("BINDING_NORMALIZED_REPORT_SHA_MISMATCH")
+    if manifest.parent != delivery_root or manifest.name != "manifest.json":
+        raise EvidenceError("BINDING_MANIFEST_DELIVERY_MISMATCH")
+    if context_path.parent != delivery_root:
+        raise EvidenceError("BINDING_RUN_CONTEXT_DELIVERY_MISMATCH")
+    if zip_path.parent != delivery_root or qc_path.parent != delivery_root:
+        raise EvidenceError("BINDING_DELIVERY_ARTIFACT_ROOT_MISMATCH")
+
+    for key in (
+        "report_sha256",
+        "manifest_sha256",
+        "run_context_sha256",
+        "delivery_zip_sha256",
+        "qc_report_sha256",
+        "binding_sha256",
+    ):
+        value = require_string(binding, key, f"BINDING_{key.upper()}_MISSING")
+        if not SHA64.fullmatch(value):
+            raise EvidenceError(f"BINDING_{key.upper()}_INVALID")
     for path, key, code in (
         (report_original, "report_sha256", "BINDING_ORIGINAL_REPORT_SHA_MISMATCH"),
         (report_normalized, "report_sha256", "BINDING_NORMALIZED_REPORT_SHA_MISMATCH"),
@@ -200,23 +354,11 @@ def validate_binding(
         (zip_path, "delivery_zip_sha256", "BINDING_DELIVERY_ZIP_SHA_MISMATCH"),
         (qc_path, "qc_report_sha256", "BINDING_QC_REPORT_SHA_MISMATCH"),
     ):
-        if sha256_file(path) != binding.get(key):
+        if sha256_file(path) != binding[key]:
             raise EvidenceError(code)
-    original_payload = read_object(report_original, "BINDING_ORIGINAL_REPORT_JSON_INVALID")
-    normalized_payload = read_object(report_normalized, "BINDING_NORMALIZED_REPORT_JSON_INVALID")
-    if original_payload != normalized_payload:
-        raise EvidenceError("BINDING_REPORT_SEMANTIC_MISMATCH")
-    validate_report_identity(
-        original_payload,
-        expected_mode=require_string(binding, "mode", "BINDING_MODE_MISSING"),
-        expected_source_sha=require_string(binding, "source_head", "BINDING_SOURCE_SHA_MISSING"),
-    )
-    if original_payload.get("run_id") != binding.get("run_id") or original_payload.get("delivery_package_id") != binding.get("delivery_package_id"):
-        raise EvidenceError("BINDING_REPORT_IDENTITY_MISMATCH")
+
     validate_manifest(original_payload, manifest)
     validate_context(original_payload, context_path)
-    if expected_report is not None and report_normalized != expected_report:
-        raise EvidenceError("BINDING_NORMALIZED_REPORT_PATH_MISMATCH")
 
 
 def command_validate_binding(args: argparse.Namespace) -> None:
@@ -228,6 +370,29 @@ def command_validate_binding(args: argparse.Namespace) -> None:
         expected_artifact_root=Path(args.expected_artifact_root) if args.expected_artifact_root else None,
     )
     print(json.dumps(binding, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+
+
+def validate_two_run_payload(
+    two_run: dict[str, Any],
+    binding_a: dict[str, Any],
+    binding_b: dict[str, Any],
+) -> None:
+    require_exact_keys(two_run, TWO_RUN_BINDING_KEYS, "TWO_RUN_BINDING_CLOSED_SCHEMA_MISMATCH")
+    require_equal(two_run, "schema_version", TWO_RUN_SCHEMA, "TWO_RUN_BINDING_SCHEMA_MISMATCH")
+    observed = two_run.get("binding_sha256")
+    if not isinstance(observed, str) or observed != self_hash(two_run, "binding_sha256"):
+        raise EvidenceError("TWO_RUN_BINDING_SELF_HASH_MISMATCH")
+    for key in ("run_a", "run_b"):
+        value = two_run.get(key)
+        if not isinstance(value, dict):
+            raise EvidenceError("TWO_RUN_BINDING_RUN_ENTRY_INVALID", key)
+        require_exact_keys(value, PER_RUN_BINDING_KEYS, "TWO_RUN_BINDING_RUN_CLOSED_SCHEMA_MISMATCH")
+    if two_run["run_a"] != binding_a or two_run["run_b"] != binding_b:
+        raise EvidenceError("TWO_RUN_BINDING_SEMANTIC_MISMATCH")
+    if two_run.get("source_head") != binding_a.get("source_head") or two_run.get("source_head") != binding_b.get("source_head"):
+        raise EvidenceError("TWO_RUN_SOURCE_SHA_MISMATCH")
+    if two_run.get("mode") != binding_a.get("mode") or two_run.get("mode") != binding_b.get("mode"):
+        raise EvidenceError("TWO_RUN_MODE_MISMATCH")
 
 
 def validate_two_run(args: argparse.Namespace) -> None:
@@ -245,11 +410,7 @@ def validate_two_run(args: argparse.Namespace) -> None:
         expected_runtime_root=Path(args.expected_runtime_root_b),
         expected_artifact_root=Path(args.expected_artifact_root_b),
     )
-    distinct_fields = (
-        "run_id", "delivery_package_id", "runtime_root", "artifact_root", "run_root",
-        "report_original_path", "report_normalized_path", "report_sha256", "manifest_path", "manifest_sha256",
-    )
-    duplicates = [field for field in distinct_fields if binding_a.get(field) == binding_b.get(field)]
+    duplicates = [field for field in DISTINCT_RUN_FIELDS if binding_a.get(field) == binding_b.get(field)]
     if duplicates:
         raise EvidenceError("TWO_RUN_BINDING_NOT_DISTINCT", ",".join(duplicates))
     if binding_a.get("source_head") != binding_b.get("source_head"):
@@ -260,10 +421,11 @@ def validate_two_run(args: argparse.Namespace) -> None:
         "schema_version": TWO_RUN_SCHEMA,
         "source_head": binding_a["source_head"],
         "mode": binding_a["mode"],
-        "run_a": {key: binding_a[key] for key in distinct_fields},
-        "run_b": {key: binding_b[key] for key in distinct_fields},
+        "run_a": binding_a,
+        "run_b": binding_b,
     }
     payload["binding_sha256"] = self_hash(payload, "binding_sha256")
+    validate_two_run_payload(payload, binding_a, binding_b)
     write_json(Path(args.output), payload)
     print("DISTINCT_TWO_RUN_BINDING=PASS")
     print(f"RUN_A_REPORT={binding_a['report_normalized_path']}")
@@ -277,22 +439,20 @@ def augment_runtime_seed(args: argparse.Namespace) -> None:
     seed = read_object(seed_path, "RUNTIME_SEED_JSON_INVALID")
     binding_a = load_binding(Path(args.binding_a))
     binding_b = load_binding(Path(args.binding_b))
-    validate_binding(binding_a)
-    validate_binding(binding_b)
-    two_run = read_object(Path(args.two_run_binding), "TWO_RUN_BINDING_JSON_INVALID")
-    require_equal(two_run, "schema_version", TWO_RUN_SCHEMA, "TWO_RUN_BINDING_SCHEMA_MISMATCH")
-    if two_run.get("binding_sha256") != self_hash(two_run, "binding_sha256"):
-        raise EvidenceError("TWO_RUN_BINDING_SELF_HASH_MISMATCH")
-    distinct_fields = (
-        "run_id", "delivery_package_id", "runtime_root", "artifact_root", "run_root",
-        "report_original_path", "report_normalized_path", "report_sha256", "manifest_path", "manifest_sha256",
+    validate_binding(
+        binding_a,
+        expected_report=Path(args.expected_report_a) if getattr(args, "expected_report_a", None) else None,
+        expected_runtime_root=Path(args.expected_runtime_root_a) if getattr(args, "expected_runtime_root_a", None) else None,
+        expected_artifact_root=Path(args.expected_artifact_root_a) if getattr(args, "expected_artifact_root_a", None) else None,
     )
-    expected_a = {key: binding_a[key] for key in distinct_fields}
-    expected_b = {key: binding_b[key] for key in distinct_fields}
-    if two_run.get("run_a") != expected_a or two_run.get("run_b") != expected_b:
-        raise EvidenceError("TWO_RUN_BINDING_SEMANTIC_MISMATCH")
-    if two_run.get("source_head") != binding_a.get("source_head") or two_run.get("mode") != binding_a.get("mode"):
-        raise EvidenceError("TWO_RUN_BINDING_SOURCE_MODE_MISMATCH")
+    validate_binding(
+        binding_b,
+        expected_report=Path(args.expected_report_b) if getattr(args, "expected_report_b", None) else None,
+        expected_runtime_root=Path(args.expected_runtime_root_b) if getattr(args, "expected_runtime_root_b", None) else None,
+        expected_artifact_root=Path(args.expected_artifact_root_b) if getattr(args, "expected_artifact_root_b", None) else None,
+    )
+    two_run = read_object(Path(args.two_run_binding), "TWO_RUN_BINDING_JSON_INVALID")
+    validate_two_run_payload(two_run, binding_a, binding_b)
     seed.setdefault("run_a", {})["report_binding"] = binding_a
     seed.setdefault("run_b", {})["report_binding"] = binding_b
     seed.setdefault("aggregate", {})["two_run_binding"] = two_run
@@ -300,6 +460,15 @@ def augment_runtime_seed(args: argparse.Namespace) -> None:
     seed["runtime_seed_sha256"] = self_hash(seed, "runtime_seed_sha256")
     write_json(seed_path, seed)
     print("RUNTIME_SEED_REPORT_BINDINGS=PASS")
+
+
+def add_full_validation_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--expected-report-a", required=True)
+    parser.add_argument("--expected-report-b", required=True)
+    parser.add_argument("--expected-runtime-root-a", required=True)
+    parser.add_argument("--expected-artifact-root-a", required=True)
+    parser.add_argument("--expected-runtime-root-b", required=True)
+    parser.add_argument("--expected-artifact-root-b", required=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -327,12 +496,7 @@ def build_parser() -> argparse.ArgumentParser:
     two = sub.add_parser("validate-two-run")
     two.add_argument("--binding-a", required=True)
     two.add_argument("--binding-b", required=True)
-    two.add_argument("--expected-report-a", required=True)
-    two.add_argument("--expected-report-b", required=True)
-    two.add_argument("--expected-runtime-root-a", required=True)
-    two.add_argument("--expected-artifact-root-a", required=True)
-    two.add_argument("--expected-runtime-root-b", required=True)
-    two.add_argument("--expected-artifact-root-b", required=True)
+    add_full_validation_args(two)
     two.add_argument("--output", required=True)
     two.set_defaults(func=validate_two_run)
 
@@ -341,6 +505,7 @@ def build_parser() -> argparse.ArgumentParser:
     augment.add_argument("--binding-a", required=True)
     augment.add_argument("--binding-b", required=True)
     augment.add_argument("--two-run-binding", required=True)
+    add_full_validation_args(augment)
     augment.set_defaults(func=augment_runtime_seed)
     return parser
 
