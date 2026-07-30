@@ -6,7 +6,7 @@
   "enabled": true,
   "private_repository": "TheGor-365/generative-film-factory-control-center",
   "allowed_branch": "main",
-  "pinned_private_sha": "d245d7b7e832459779b8d4e89e21e87e130f213a",
+  "pinned_private_sha": "be76c8be95fa61d175c4c99ea16b4bf670510560",
   "private_sha_source": "source_controlled_fixed_value",
   "runner_repository": "TheGor-365/generative-film-factory-actions-runner",
   "status_context": "public-runner/gff/wave-c-validation",
