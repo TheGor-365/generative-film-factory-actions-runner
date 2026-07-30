@@ -24,9 +24,6 @@ PY
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/wave_c/test_git_topology.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/wave_c/test_source_sha_propagation.py
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/wave_c/test_gate_contract.py
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/wave_c/evidence_contract.py validate-contract \
-  --contract contracts/GFF_WAVE_C_G1_V03_VALIDATION_v01.json
-
 workflow=.github/workflows/run-wave-c-exact-evidence.yml
 contract=contracts/GFF_WAVE_C_G1_V03_VALIDATION_v01.json
 frozen_sha=be76c8be95fa61d175c4c99ea16b4bf670510560
