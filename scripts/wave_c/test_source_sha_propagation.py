@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-PINNED_PRIVATE_SHA = "d245d7b7e832459779b8d4e89e21e87e130f213a"
+PINNED_PRIVATE_SHA = "be76c8be95fa61d175c4c99ea16b4bf670510560"
 
 
 class SourceShaPropagationTest(unittest.TestCase):
