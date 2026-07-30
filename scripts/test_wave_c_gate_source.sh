@@ -46,6 +46,7 @@ production_sources=(
   scripts/wave_c/git_topology.sh
   scripts/wave_c/evidence_contract.py
   scripts/wave_c/report_discovery.py
+  scripts/wave_c/report_discovery_contract.py
   scripts/wave_c/emit_failure_diagnostics.sh
 )
 ! grep -Fq 'PRIVATE_MAIN_SHA_MISMATCH' "${production_sources[@]}"
