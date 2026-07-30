@@ -1,6 +1,6 @@
 {
   "contract_id": "GFF_WAVE_C_G1_V03_VALIDATION_v01",
-  "schema_version": "2.0.1",
+  "schema_version": "2.0.2",
   "work_order_id": "RWO-GFF-WAVE-C-CONVERGENCE-ACTIONS-GATE-REPAIR-001",
   "gate_id": "GFF_WAVE_C_G1_V03_VALIDATION_v01",
   "enabled": true,
@@ -12,6 +12,20 @@
   "status_context": "public-runner/gff/wave-c-validation",
   "workflow_inputs": [],
   "private_sha_pattern": "^[0-9a-f]{40}$",
+  "private_checkout_topology": {
+    "checkout_ref": "allowlisted_main",
+    "fetch_depth": 0,
+    "require_full_history": true,
+    "record_observed_main_head": true,
+    "require_pin_commit_exists": true,
+    "require_pin_ancestor_of_allowlisted_main": true,
+    "allow_main_equals_pin": true,
+    "allow_main_descendant_of_pin": true,
+    "require_main_equals_pin": false,
+    "detach_exact_pin": true,
+    "require_detached_head_equals_pin": true,
+    "require_clean_worktree": true
+  },
   "result_vocabulary": [
     "PASS",
     "FAIL",
