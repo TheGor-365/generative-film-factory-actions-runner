@@ -2,6 +2,13 @@ name: Run Wave C Exact Actions Evidence
 
 on:
   workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+    paths:
+      - .github/gff/r0e_triggers/R0E_02_001.json
 
 permissions:
   contents: read
@@ -13,6 +20,17 @@ concurrency:
 jobs:
   validate-wave-c-exact-sha:
     name: validate-wave-c-exact-sha
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        (
+          github.event_name == 'pull_request' &&
+          github.event.action == 'opened' &&
+          github.event.pull_request.base.ref == 'main' &&
+          github.event.pull_request.head.repo.full_name == github.repository &&
+          github.event.pull_request.head.ref == 'run/r0e-02-fresh-evidence-001'
+        )
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -21,7 +39,13 @@ jobs:
       PRIVATE_BRANCH: main
       PRIVATE_SHA: be76c8be95fa61d175c4c99ea16b4bf670510560
       RUNNER_REPO: ${{ github.repository }}
-      RUNNER_SHA: ${{ github.sha }}
+      RUNNER_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+      TRIGGER_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || '' }}
+      PR_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.ref || '' }}
+      PR_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
+      PR_HEAD_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || '' }}
+      EVENT_ACTION: ${{ github.event.action || '' }}
+      TRIGGER_PATH: .github/gff/r0e_triggers/R0E_02_001.json
       STATUS_CONTEXT: public-runner/gff/wave-c-validation
 
     steps:
@@ -32,10 +56,77 @@ jobs:
           set -euo pipefail
           printf 'GFF_WAVE_C_WORK_ROOT=%s\n' "$RUNNER_TEMP/gff-wave-c-$GITHUB_RUN_ID" >> "$GITHUB_ENV"
 
-      - name: Checkout public runner
+      - name: Checkout exact public runner execution SHA
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ env.RUNNER_SHA }}
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Verify event selection and exact runner checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_runner_sha="$(git rev-parse HEAD)"
+          printf '%s\n' \
+            "EVENT_NAME=$GITHUB_EVENT_NAME" \
+            "EXECUTION_RUNNER_SHA=$RUNNER_SHA" \
+            "ACTUAL_RUNNER_SHA=$actual_runner_sha" \
+            "TRIGGER_EVIDENCE_SHA=${TRIGGER_SHA:-none}"
+          [[ "$actual_runner_sha" == "$RUNNER_SHA" ]]
+
+          case "$GITHUB_EVENT_NAME" in
+            workflow_dispatch)
+              [[ -z "$TRIGGER_SHA" ]]
+              printf '%s\n' \
+                "EVENT_SELECTION=PASS_WORKFLOW_DISPATCH" \
+                "TRIGGER_VALIDATION=NOT_REQUIRED_WORKFLOW_DISPATCH"
+              ;;
+            pull_request)
+              [[ "$EVENT_ACTION" == "opened" ]]
+              [[ "$PR_BASE_REF" == "main" ]]
+              [[ "$PR_HEAD_REPO" == "$RUNNER_REPO" ]]
+              [[ "$PR_HEAD_REF" == "run/r0e-02-fresh-evidence-001" ]]
+              [[ "$TRIGGER_SHA" =~ ^[0-9a-f]{40}$ ]]
+              printf '%s\n' "EVENT_SELECTION=PASS_PULL_REQUEST"
+              ;;
+            *)
+              printf 'UNAUTHORIZED_EVENT_NAME=%s\n' "$GITHUB_EVENT_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Validate exact one-file observable PR trigger
+        if: ${{ github.event_name == 'pull_request' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          trigger_root="$RUNNER_TEMP/gff-r0e-trigger-$GITHUB_RUN_ID"
+          trap 'rm -rf -- "$trigger_root"' EXIT
+          mkdir -p "$trigger_root"
+
+          git fetch --no-tags --depth=1 origin \
+            "refs/heads/$PR_HEAD_REF:refs/remotes/origin/r0e-trigger-head"
+          fetched_trigger_sha="$(git rev-parse refs/remotes/origin/r0e-trigger-head)"
+          [[ "$fetched_trigger_sha" == "$TRIGGER_SHA" ]]
+
+          mapfile -t trigger_delta < <(git diff --name-status "$RUNNER_SHA" "$TRIGGER_SHA")
+          [[ ${#trigger_delta[@]} -eq 1 ]]
+          [[ "${trigger_delta[0]}" == $'A\t'"$TRIGGER_PATH" ]]
+
+          trigger_json="$trigger_root/R0E_02_001.json"
+          git show "$TRIGGER_SHA:$TRIGGER_PATH" > "$trigger_json"
+          PYTHONDONTWRITEBYTECODE=1 python3 scripts/wave_c/test_r0e_pr_trigger.py validate \
+            --path "$trigger_json" \
+            --runner-base-sha "$RUNNER_SHA"
+
+          printf '%s\n' \
+            "ONE_FILE_TRIGGER_DELTA=PASS" \
+            "TRIGGER_PATH=$TRIGGER_PATH" \
+            "TRIGGER_EVIDENCE_SHA=$TRIGGER_SHA" \
+            "EXECUTION_RUNNER_SHA=$RUNNER_SHA" \
+            "TRIGGER_HEAD_EXECUTED=false" \
+            "NO_FAKE_GREEN=true"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
