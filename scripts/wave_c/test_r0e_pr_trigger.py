@@ -7,6 +7,7 @@ import copy
 import json
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from typing import Any
@@ -42,10 +43,30 @@ FALSE_FLAGS = (
     "media_execution_authorized",
     "paid_provider_execution_authorized",
 )
+DUPLICATE_AUTHORITY_KEYS = (
+    "authorization_nonce",
+    "runner_base_sha",
+    "dispatch_ordinal",
+    "historical_rerun",
+    "second_dispatch",
+    "media_execution_authorized",
+    "paid_provider_execution_authorized",
+    "no_fake_green",
+)
 
 
 class TriggerValidationError(ValueError):
     """Closed trigger contract failure."""
+
+
+def reject_duplicate_object_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    """Construct one JSON object while rejecting every duplicate key recursively."""
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise TriggerValidationError(f"TRIGGER_JSON_DUPLICATE_KEY key={key}")
+        result[key] = value
+    return result
 
 
 def require_exact_string(payload: dict[str, Any], key: str, expected: str) -> None:
@@ -90,7 +111,12 @@ def validate_trigger_document(payload: Any, runner_base_sha: str) -> None:
 
 def load_json_object(path: Path) -> Any:
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        return json.loads(
+            path.read_text(encoding="utf-8"),
+            object_pairs_hook=reject_duplicate_object_pairs,
+        )
+    except TriggerValidationError:
+        raise
     except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         raise TriggerValidationError("TRIGGER_JSON_INVALID") from exc
 
@@ -169,6 +195,91 @@ class TriggerContractTests(unittest.TestCase):
                 self.assert_rejected({"no_fake_green": value}, "NO_FAKE_GREEN_NOT_EXACT_TRUE")
 
 
+class DuplicateKeyParserTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.runner_sha = "1" * 40
+        self.payload = canonical_payload(self.runner_sha)
+
+    def duplicate_document(self, key: str, first: Any, second: Any) -> str:
+        entries: list[str] = []
+        for observed_key, value in self.payload.items():
+            if observed_key == key:
+                entries.append(f"{json.dumps(key)}:{json.dumps(first)}")
+                entries.append(f"{json.dumps(key)}:{json.dumps(second)}")
+            else:
+                entries.append(f"{json.dumps(observed_key)}:{json.dumps(value)}")
+        return "{" + ",".join(entries) + "}"
+
+    def assert_raw_rejected(self, raw: str, expected_key: str) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trigger.json"
+            path.write_text(raw, encoding="utf-8")
+            with self.assertRaisesRegex(
+                TriggerValidationError,
+                rf"TRIGGER_JSON_DUPLICATE_KEY key={re.escape(expected_key)}",
+            ):
+                load_json_object(path)
+
+    def test_identical_duplicate_authority_values_are_rejected(self) -> None:
+        for key in DUPLICATE_AUTHORITY_KEYS:
+            with self.subTest(key=key):
+                value = self.payload[key]
+                self.assert_raw_rejected(self.duplicate_document(key, value, value), key)
+
+    def test_conflicting_duplicate_authority_values_are_rejected(self) -> None:
+        conflicting_values = {
+            "authorization_nonce": "wrong",
+            "runner_base_sha": "2" * 40,
+            "dispatch_ordinal": 2,
+            "historical_rerun": True,
+            "second_dispatch": True,
+            "media_execution_authorized": True,
+            "paid_provider_execution_authorized": True,
+            "no_fake_green": False,
+        }
+        for key, conflicting_value in conflicting_values.items():
+            with self.subTest(key=key):
+                self.assert_raw_rejected(
+                    self.duplicate_document(key, self.payload[key], conflicting_value),
+                    key,
+                )
+
+    def test_duplicate_true_false_authority_values_are_rejected(self) -> None:
+        for key in (*FALSE_FLAGS, "no_fake_green"):
+            for first, second in ((True, False), (False, True)):
+                with self.subTest(key=key, first=first, second=second):
+                    self.assert_raw_rejected(self.duplicate_document(key, first, second), key)
+
+    def test_duplicate_integer_string_ordinal_is_rejected(self) -> None:
+        for first, second in ((1, "1"), ("1", 1)):
+            with self.subTest(first=first, second=second):
+                self.assert_raw_rejected(
+                    self.duplicate_document("dispatch_ordinal", first, second),
+                    "dispatch_ordinal",
+                )
+
+    def test_nested_object_duplicates_are_rejected_recursively(self) -> None:
+        for nested_values in (("false", "false"), ("false", "true")):
+            first, second = nested_values
+            raw = (
+                '{"future_nested":{"authority":'
+                + first
+                + ',"authority":'
+                + second
+                + "}}"
+            )
+            with self.subTest(first=first, second=second):
+                self.assert_raw_rejected(raw, "authority")
+
+    def test_duplicate_rejection_precedes_semantic_validation(self) -> None:
+        raw = self.duplicate_document(
+            "authorization_nonce",
+            "semantically-invalid-first-value",
+            AUTHORIZATION_NONCE,
+        )
+        self.assert_raw_rejected(raw, "authorization_nonce")
+
+
 class WorkflowSourceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -177,7 +288,7 @@ class WorkflowSourceTests(unittest.TestCase):
         cls.workflow = cls.workflow_path.read_text(encoding="utf-8")
 
     def test_event_selection_is_dispatch_or_exact_opened_pr(self) -> None:
-        source = self.workflow
+        source = cls_source = self.workflow
         self.assertIn("  workflow_dispatch:\n", source)
         self.assertIn("  pull_request:\n", source)
         self.assertIn("      - main\n", source)
