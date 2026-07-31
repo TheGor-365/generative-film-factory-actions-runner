@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import contextlib
 import copy
 import importlib.util
+import io
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -13,6 +17,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 HELPER_PATH = ROOT / "scripts" / "wave_c" / "report_discovery.py"
+RUNTIME_PATH = ROOT / "scripts" / "wave_c" / "runtime.sh"
 spec = importlib.util.spec_from_file_location("report_discovery", HELPER_PATH)
 helper = importlib.util.module_from_spec(spec)
 assert spec.loader
@@ -154,6 +159,50 @@ class ReportDiscoveryTest(unittest.TestCase):
         with self.assertRaises(helper.EvidenceError) as caught:
             helper.bind_pilot(fixture.bind_args())
         self.assertEqual(code, caught.exception.code)
+
+    def rewrite_binding(self, fixture: Fixture, mutation, *, rehash: bool = True) -> dict:
+        binding = json.loads(fixture.binding.read_text(encoding="utf-8"))
+        mutation(binding)
+        if rehash:
+            binding["binding_sha256"] = helper.self_hash(binding, "binding_sha256")
+        write_json(fixture.binding, binding)
+        return binding
+
+    def select_original_reports(
+        self,
+        a: Fixture,
+        b: Fixture,
+        *,
+        binding_a: Path | None = None,
+        binding_b: Path | None = None,
+        runtime_a: Path | None = None,
+        artifact_a: Path | None = None,
+        runtime_b: Path | None = None,
+        artifact_b: Path | None = None,
+    ) -> subprocess.CompletedProcess[str]:
+        runtime_source = RUNTIME_PATH.read_text(encoding="utf-8")
+        function_source = runtime_source.split("select_original_release_reports() {", 1)[1]
+        selector_source = function_source.split("<<'PY'\n", 1)[1].split("\nPY\n}", 1)[0]
+        argv = [
+            "release-selector", str(HELPER_PATH),
+            str(binding_a or a.binding), str(binding_b or b.binding),
+            str(a.normalized), str(b.normalized),
+            str(runtime_a or a.runtime), str(artifact_a or a.artifact),
+            str(runtime_b or b.runtime), str(artifact_b or b.artifact),
+        ]
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        returncode = 0
+        previous_argv = sys.argv
+        try:
+            sys.argv = argv
+            with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+                exec(compile(selector_source, str(RUNTIME_PATH), "exec"), {"__name__": "__main__"})
+        except SystemExit as error:
+            returncode = int(error.code or 0)
+        finally:
+            sys.argv = previous_argv
+        return subprocess.CompletedProcess(argv, returncode, stdout.getvalue(), stderr.getvalue())
 
     def test_contract_declares_exact_report_interface(self) -> None:
         contract = json.loads((ROOT / "contracts" / "GFF_WAVE_C_G1_V03_VALIDATION_v01.json").read_text(encoding="utf-8"))
@@ -327,6 +376,125 @@ class ReportDiscoveryTest(unittest.TestCase):
                 helper.validate_two_run(duplicate)
             self.assertEqual("TWO_RUN_BINDING_NOT_DISTINCT", caught.exception.code)
 
+    def test_r0e02_release_check_uses_original_paths_and_retains_normalized_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            a = Fixture(root, "a")
+            b = Fixture(root, "b")
+            a.bind(); b.bind()
+
+            def frozen_release_path_result(path: Path) -> str:
+                report = json.loads(path.read_text(encoding="utf-8"))
+                return "PASS" if report.get("report_path") == str(path) else "run_1_report_path_mismatch"
+
+            self.assertEqual("run_1_report_path_mismatch", frozen_release_path_result(a.normalized))
+            result = self.select_original_reports(a, b)
+            self.assertEqual(0, result.returncode, result.stderr)
+            selected = json.loads(result.stdout)
+            self.assertEqual(str(a.report), selected["run_a"])
+            self.assertEqual(str(b.report), selected["run_b"])
+            self.assertEqual("PASS", frozen_release_path_result(Path(selected["run_a"])))
+            self.assertEqual("PASS", frozen_release_path_result(Path(selected["run_b"])))
+            self.assertTrue(a.normalized.is_file())
+            self.assertTrue(b.normalized.is_file())
+            self.assertEqual(a.report.read_bytes(), a.normalized.read_bytes())
+            self.assertEqual(b.report.read_bytes(), b.normalized.read_bytes())
+
+    def test_original_release_path_negative_attacks(self) -> None:
+        attacks_run = 0
+        with tempfile.TemporaryDirectory() as directory:
+            suite_root = Path(directory)
+
+            def fresh(label: str) -> tuple[Fixture, Fixture]:
+                root = suite_root / label
+                a = Fixture(root, "a")
+                b = Fixture(root, "b")
+                a.bind(); b.bind()
+                return a, b
+
+            def rejected(label: str, prepare, invoke=None) -> None:
+                nonlocal attacks_run
+                a, b = fresh(label)
+                prepare(a, b)
+                result = (invoke or self.select_original_reports)(a, b)
+                with self.subTest(attack=label):
+                    self.assertNotEqual(0, result.returncode, result.stdout)
+                attacks_run += 1
+
+            rejected("normalized_as_original", lambda a, b: self.rewrite_binding(
+                a, lambda payload: payload.__setitem__("report_original_path", str(a.normalized))))
+
+            def swap(a: Fixture, b: Fixture) -> None:
+                a_path = str(a.report)
+                b_path = str(b.report)
+                self.rewrite_binding(a, lambda payload: payload.__setitem__("report_original_path", b_path))
+                self.rewrite_binding(b, lambda payload: payload.__setitem__("report_original_path", a_path))
+            rejected("run_paths_swapped", swap)
+
+            def outside(a: Fixture, b: Fixture) -> None:
+                outside_path = a.root / "outside.json"
+                outside_path.write_bytes(a.report.read_bytes())
+                self.rewrite_binding(a, lambda payload: payload.__setitem__("report_original_path", str(outside_path)))
+            rejected("outside_runtime_root", outside)
+
+            rejected("relative_path", lambda a, b: self.rewrite_binding(
+                a, lambda payload: payload.__setitem__("report_original_path", "pilot_report.json")))
+
+            def symlink(a: Fixture, b: Fixture) -> None:
+                real = a.report.with_name("real-pilot-report.json")
+                a.report.rename(real)
+                a.report.symlink_to(real)
+            rejected("symlink_path", symlink)
+
+            def directory(a: Fixture, b: Fixture) -> None:
+                a.report.unlink()
+                a.report.mkdir()
+            rejected("directory_path", directory)
+
+            rejected("missing_original_path", lambda a, b: self.rewrite_binding(
+                a, lambda payload: payload.pop("report_original_path")))
+
+            rejected("wrong_json_type", lambda a, b: self.rewrite_binding(
+                a, lambda payload: payload.__setitem__("report_original_path", [str(a.report)])))
+
+            rejected("post_binding_replacement", lambda a, b: a.report.write_text("{}\n", encoding="utf-8"))
+
+            rejected("original_sha_mismatch", lambda a, b: self.rewrite_binding(
+                a, lambda payload: payload.__setitem__("report_sha256", "f" * 64)))
+
+            def byte_mismatch(a: Fixture, b: Fixture) -> None:
+                payload = json.loads(a.normalized.read_text(encoding="utf-8"))
+                payload["checks"] = {"mutated": True}
+                write_json(a.normalized, payload)
+            rejected("original_normalized_byte_mismatch", byte_mismatch)
+
+            stale = Fixture(suite_root / "stale_original", "a")
+            future = time.time_ns() + 5_000_000_000
+            os.utime(stale.marker, ns=(future, future))
+            with self.subTest(attack="stale_original_report"):
+                self.assert_code(stale, "STALE_REPORT_REJECTED")
+            attacks_run += 1
+
+            rejected("binding_report_path_mutation", lambda a, b: self.rewrite_binding(
+                a, lambda payload: payload.__setitem__("report_original_path", str(a.normalized)), rehash=False))
+
+            rejected("binding_digest_mutation", lambda a, b: self.rewrite_binding(
+                a, lambda payload: payload.__setitem__("report_sha256", "0" * 64), rehash=False))
+
+            def duplicate_invoke(a: Fixture, b: Fixture) -> subprocess.CompletedProcess[str]:
+                return self.select_original_reports(
+                    a, a,
+                    binding_a=a.binding,
+                    binding_b=a.binding,
+                    runtime_a=a.runtime,
+                    artifact_a=a.artifact,
+                    runtime_b=a.runtime,
+                    artifact_b=a.artifact,
+                )
+            rejected("duplicate_report_reuse", lambda a, b: None, duplicate_invoke)
+
+        self.assertEqual(15, attacks_run)
+
 
 if __name__ == "__main__":
     suite = unittest.defaultTestLoader.loadTestsFromTestCase(ReportDiscoveryTest)
@@ -337,6 +505,16 @@ if __name__ == "__main__":
         print("CLI_REPORT_SEMANTIC_BINDING=PASS")
         print("MANIFEST_PATH_CONFINEMENT=PASS")
         print("DISTINCT_TWO_RUN_BINDING=PASS")
-        print("NEW_NEGATIVE_MUTATIONS=PASS")
+        print("ORIGINAL_REPORT_PATH_SELECTED=PASS")
+        print("ORIGINAL_PATH_CANONICAL=PASS")
+        print("ORIGINAL_PATH_RUNTIME_CONFINED=PASS")
+        print("ORIGINAL_PATH_REGULAR_NON_SYMLINK=PASS")
+        print("ORIGINAL_PATH_SHA256_BOUND=PASS")
+        print("ORIGINAL_NORMALIZED_BYTES_EQUAL=PASS")
+        print("TWO_RUN_DISTINCTNESS_PRESERVED=PASS")
+        print("BEFORE_REPAIR=run_1_report_path_mismatch")
+        print("AFTER_REPAIR=original paths passed to release-check")
+        print("NORMALIZED_REPORTS_RETAINED_FOR_EVIDENCE=true")
+        print("NEW_NEGATIVE_ATTACKS=15")
         print("NO_FAKE_GREEN=true")
     raise SystemExit(0 if result.wasSuccessful() else 1)
