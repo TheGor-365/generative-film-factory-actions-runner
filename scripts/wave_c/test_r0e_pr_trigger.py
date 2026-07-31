@@ -288,7 +288,7 @@ class WorkflowSourceTests(unittest.TestCase):
         cls.workflow = cls.workflow_path.read_text(encoding="utf-8")
 
     def test_event_selection_is_dispatch_or_exact_opened_pr(self) -> None:
-        source = cls_source = self.workflow
+        source = self.workflow
         self.assertIn("  workflow_dispatch:\n", source)
         self.assertIn("  pull_request:\n", source)
         self.assertIn("      - main\n", source)
