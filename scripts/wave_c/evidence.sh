@@ -14,6 +14,28 @@ phase_emit_runtime_evidence() {
   if [[ ! -f "$seed_path" ]]; then
     policy_error "RUNTIME_SEED_MISSING"
   fi
+
+  local run_a_binding="$run_a_root/report-binding.json"
+  local run_b_binding="$run_b_root/report-binding.json"
+  local two_run_binding="$aggregate_root/two-run-binding.json"
+  if [[ -f "$run_a_binding" && -f "$run_b_binding" && -f "$two_run_binding" ]]; then
+    python3 "$report_binding_helper" augment-runtime-seed \
+      --seed "$seed_path" \
+      --binding-a "$run_a_binding" \
+      --binding-b "$run_b_binding" \
+      --two-run-binding "$two_run_binding" \
+      --expected-report-a "$run_a_root/pilot-report.json" \
+      --expected-report-b "$run_b_root/pilot-report.json" \
+      --expected-runtime-root-a "$run_a_root/runtime" \
+      --expected-artifact-root-a "$run_a_root/artifacts" \
+      --expected-runtime-root-b "$run_b_root/runtime" \
+      --expected-artifact-root-b "$run_b_root/artifacts" \
+      > "$evidence_root/runtime-report-binding-output.log"
+    cat "$evidence_root/runtime-report-binding-output.log"
+  else
+    printf '%s\n' "RUNTIME_SEED_REPORT_BINDINGS=NOT_AVAILABLE" "NO_FAKE_GREEN=true"
+  fi
+
   local result seed_sha
   result=$(python3 - "$seed_path" <<'PY'
 import json
@@ -22,7 +44,7 @@ from pathlib import Path
 payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 print(payload["result"])
 PY
-)
+  )
   seed_sha=$(sha256sum "$seed_path" | awk '{print $1}')
   printf '%s\n' \
     "ACTIONS_RUNTIME_SEED_SCHEMA=factory_actions_evidence_runtime_seed_v01" \
