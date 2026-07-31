@@ -128,6 +128,135 @@ raise SystemExit(1)
 PY
 }
 
+select_original_release_reports() {
+  local run_a_binding=$1
+  local run_b_binding=$2
+  local run_a_report=$3
+  local run_b_report=$4
+  local run_a_runtime_root=$5
+  local run_a_artifact_root=$6
+  local run_b_runtime_root=$7
+  local run_b_artifact_root=$8
+
+  python3 - "$report_binding_helper" \
+    "$run_a_binding" "$run_b_binding" \
+    "$run_a_report" "$run_b_report" \
+    "$run_a_runtime_root" "$run_a_artifact_root" \
+    "$run_b_runtime_root" "$run_b_artifact_root" <<'PY'
+import importlib.util
+import json
+import stat
+import sys
+from pathlib import Path
+
+helper_path = Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("report_discovery_release_selector", helper_path)
+helper = importlib.util.module_from_spec(spec)
+assert spec.loader
+spec.loader.exec_module(helper)
+
+
+def fail(code: str, detail: str = "") -> None:
+    print(f"REPORT_ERROR={code}", file=sys.stderr)
+    if detail:
+        print(f"REPORT_ERROR_DETAIL={detail}", file=sys.stderr)
+    print("NO_FAKE_GREEN=true", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def exact_string(payload: dict, key: str, code: str) -> str:
+    value = payload.get(key)
+    if type(value) is not str or not value:
+        fail(code, key)
+    return value
+
+
+def select_one(
+    binding_path: Path,
+    normalized_path: Path,
+    runtime_root: Path,
+    artifact_root: Path,
+    label: str,
+) -> tuple[dict, Path]:
+    try:
+        binding = helper.load_binding(binding_path)
+        helper.validate_binding(
+            binding,
+            expected_report=normalized_path,
+            expected_runtime_root=runtime_root,
+            expected_artifact_root=artifact_root,
+        )
+    except helper.EvidenceError as error:
+        fail(error.code, error.detail)
+
+    original_raw = exact_string(binding, "report_original_path", f"{label}_ORIGINAL_REPORT_PATH_INVALID")
+    original = Path(original_raw)
+    if not original.is_absolute():
+        fail(f"{label}_ORIGINAL_REPORT_PATH_NOT_ABSOLUTE")
+    try:
+        original_lstat = original.lstat()
+        original_resolved = original.resolve(strict=True)
+        runtime_resolved = runtime_root.resolve(strict=True)
+    except OSError as error:
+        fail(f"{label}_ORIGINAL_REPORT_PATH_INVALID", str(error))
+    if stat.S_ISLNK(original_lstat.st_mode) or not stat.S_ISREG(original_lstat.st_mode):
+        fail(f"{label}_ORIGINAL_REPORT_NOT_REGULAR_NON_SYMLINK")
+    if original_raw != str(original_resolved):
+        fail(f"{label}_ORIGINAL_REPORT_PATH_NOT_CANONICAL")
+    try:
+        original_resolved.relative_to(runtime_resolved)
+    except ValueError:
+        fail(f"{label}_ORIGINAL_REPORT_OUTSIDE_RUNTIME_ROOT")
+
+    run_id = exact_string(binding, "run_id", f"{label}_RUN_ID_INVALID")
+    expected_original = runtime_resolved / "pilot-runs" / run_id / "pilot_report.json"
+    if original_resolved != expected_original:
+        fail(f"{label}_ORIGINAL_REPORT_BINDING_MISMATCH")
+
+    digest = exact_string(binding, "report_sha256", f"{label}_ORIGINAL_REPORT_SHA256_INVALID")
+    if helper.sha256_file(original_resolved) != digest:
+        fail(f"{label}_ORIGINAL_REPORT_SHA256_MISMATCH")
+
+    normalized_raw = exact_string(binding, "report_normalized_path", f"{label}_NORMALIZED_REPORT_PATH_INVALID")
+    normalized = Path(normalized_raw)
+    try:
+        normalized_lstat = normalized.lstat()
+        normalized_resolved = normalized.resolve(strict=True)
+    except OSError as error:
+        fail(f"{label}_NORMALIZED_REPORT_PATH_INVALID", str(error))
+    if stat.S_ISLNK(normalized_lstat.st_mode) or not stat.S_ISREG(normalized_lstat.st_mode):
+        fail(f"{label}_NORMALIZED_REPORT_NOT_REGULAR_NON_SYMLINK")
+    if normalized_raw != str(normalized_resolved):
+        fail(f"{label}_NORMALIZED_REPORT_PATH_NOT_CANONICAL")
+    if original_resolved.read_bytes() != normalized_resolved.read_bytes():
+        fail(f"{label}_ORIGINAL_NORMALIZED_BYTES_MISMATCH")
+
+    try:
+        report = json.loads(original_resolved.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        fail(f"{label}_ORIGINAL_REPORT_JSON_INVALID", str(error))
+    if type(report) is not dict or report.get("report_path") != original_raw:
+        fail(f"{label}_ORIGINAL_REPORT_PATH_SEMANTIC_MISMATCH")
+    return binding, original_resolved
+
+
+binding_a, original_a = select_one(
+    Path(sys.argv[2]), Path(sys.argv[4]), Path(sys.argv[6]), Path(sys.argv[7]), "RUN_A"
+)
+binding_b, original_b = select_one(
+    Path(sys.argv[3]), Path(sys.argv[5]), Path(sys.argv[8]), Path(sys.argv[9]), "RUN_B"
+)
+if original_a == original_b:
+    fail("TWO_RUN_ORIGINAL_REPORT_NOT_DISTINCT")
+if binding_a.get("run_id") == binding_b.get("run_id"):
+    fail("TWO_RUN_RUN_ID_NOT_DISTINCT")
+if binding_a.get("runtime_root") == binding_b.get("runtime_root"):
+    fail("TWO_RUN_RUNTIME_ROOT_NOT_DISTINCT")
+
+print(json.dumps({"run_a": str(original_a), "run_b": str(original_b)}, sort_keys=True))
+PY
+}
+
 run_verify_phase() {
   local step_id=$1
   local run_root=$2
@@ -203,11 +332,40 @@ phase_aggregate_release_check() {
   record_report_helper_result aggregate_release_check aggregate aggregate_two_run_binding "$binding_log" "$binding_exit"
   [[ $binding_exit -eq 0 ]] || return 0
 
+  local selection_log="$logs_root/aggregate_original_report_selection.log"
+  local selection_exit=0
+  if select_original_release_reports \
+    "$run_a_binding" "$run_b_binding" \
+    "$run_a_report" "$run_b_report" \
+    "$run_a_root/runtime" "$run_a_root/artifacts" \
+    "$run_b_root/runtime" "$run_b_root/artifacts" >"$selection_log" 2>&1; then
+    selection_exit=0
+  else
+    selection_exit=$?
+  fi
+  cat "$selection_log"
+  record_report_helper_result aggregate_release_check aggregate aggregate_original_report_selection "$selection_log" "$selection_exit"
+  [[ $selection_exit -eq 0 ]] || return 0
+
+  local run_a_original_report
+  local run_b_original_report
+  run_a_original_report=$(json_string_field "$selection_log" run_a 2>/dev/null || true)
+  run_b_original_report=$(json_string_field "$selection_log" run_b 2>/dev/null || true)
+  if [[ -z "$run_a_original_report" || -z "$run_b_original_report" || "$run_a_original_report" == "$run_b_original_report" ]]; then
+    record_missing aggregate_release_check aggregate aggregate_original_report_selection ORIGINAL_REPORT_SELECTION_INVALID
+    return 0
+  fi
+  printf '%s\n' \
+    "ORIGINAL_RELEASE_REPORT_SELECTION=PASS" \
+    "RUN_A_RELEASE_REPORT_ORIGINAL_PATH=$run_a_original_report" \
+    "RUN_B_RELEASE_REPORT_ORIGINAL_PATH=$run_b_original_report" \
+    "NORMALIZED_REPORTS_RETAINED_FOR_EVIDENCE=true"
+
   run_private aggregate_release_check aggregate aggregate_release_check "$private_checkout" \
     "FACTORY_MVP_COMPONENT_TEST_SUMMARY_PATH=$component_summary_path" \
     "FACTORY_MVP_DOCTOR_REPORT_PATH=$doctor_path" \
     "FACTORY_MVP_EVIDENCE_ROOT=$aggregate_root" \
-    -- ruby "$factory_bin" release-check --run-1 "$run_a_report" --run-2 "$run_b_report"
+    -- ruby "$factory_bin" release-check --run-1 "$run_a_original_report" --run-2 "$run_b_original_report"
   cp "$logs_root/aggregate_release_check.log" "$evidence_root/release-check.json"
 }
 
