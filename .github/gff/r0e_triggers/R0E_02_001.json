@@ -1,0 +1,14 @@
+{
+  "schema_version": "gff_r0e_observable_trigger_v01",
+  "chat_instance_id": "GFF-CHAT-R0E-02",
+  "work_order_id": "RWO-GFF-RUNNER-ONE-FRESH-OBSERVABLE-RUN-002",
+  "runner_base_sha": "018ec359368067fb222045cb2939add04a9ff517",
+  "frozen_private_sha": "be76c8be95fa61d175c4c99ea16b4bf670510560",
+  "authorization_nonce": "fca997c30d411578f1ae216300f219ce60025fadb75eda7285e38f36c02aab97",
+  "dispatch_ordinal": 1,
+  "historical_rerun": false,
+  "second_dispatch": false,
+  "media_execution_authorized": false,
+  "paid_provider_execution_authorized": false,
+  "no_fake_green": true
+}
