@@ -1,0 +1,48 @@
+name: Verify PR20 Source Gate
+
+on:
+  push:
+    branches:
+      - repair/r0d-02-pilot-report-discovery-002
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pr20-source-gate:
+    name: verify-pr20-source-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout exact pushed commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify exact checkout and clean worktree
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD
+          printf '%s\n' '${{ github.sha }}'
+          git status --porcelain
+
+          actual_head="$(git rev-parse HEAD)"
+          expected_head='${{ github.sha }}'
+          [[ "$actual_head" == "$expected_head" ]]
+
+          worktree_status="$(git status --porcelain)"
+          if [[ -n "$worktree_status" ]]; then
+            printf '%s\n' "DIRTY_WORKTREE_BEFORE_TESTS" >&2
+            printf '%s\n' "$worktree_status" >&2
+            exit 1
+          fi
+
+      - name: Run full repository source gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test_wave_c_gate_source.sh
