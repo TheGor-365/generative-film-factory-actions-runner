@@ -4,6 +4,14 @@ on:
   push:
     branches:
       - repair/r0d-02-pilot-report-discovery-002
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
 
 permissions:
   contents: read
@@ -11,29 +19,36 @@ permissions:
 jobs:
   verify-pr20-source-gate:
     name: verify-pr20-source-gate
+    if: github.event_name == 'push' || github.head_ref == 'repair/r0d-02-pilot-report-discovery-002'
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
     steps:
-      - name: Checkout exact pushed commit
+      - name: Checkout exact event head
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
 
       - name: Verify exact checkout and clean worktree
         shell: bash
+        env:
+          EXPECTED_EVENT_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
-          git rev-parse HEAD
-          printf '%s\n' '${{ github.sha }}'
-          git status --porcelain
 
           actual_head="$(git rev-parse HEAD)"
-          expected_head='${{ github.sha }}'
-          [[ "$actual_head" == "$expected_head" ]]
+          expected_head="$EXPECTED_EVENT_SHA"
+          printf 'ACTUAL_HEAD=%s\n' "$actual_head"
+          printf 'EXPECTED_HEAD=%s\n' "$expected_head"
 
+          if [[ "$actual_head" != "$expected_head" ]]; then
+            printf 'EXACT_EVENT_HEAD_MISMATCH actual=%s expected=%s\n' "$actual_head" "$expected_head" >&2
+            exit 1
+          fi
+
+          git status --porcelain
           worktree_status="$(git status --porcelain)"
           if [[ -n "$worktree_status" ]]; then
             printf '%s\n' "DIRTY_WORKTREE_BEFORE_TESTS" >&2
