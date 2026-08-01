@@ -77,31 +77,170 @@ module FactoryMvp
         end
 
         module StrictJson
-          class UniqueHash < Hash
-            def []=(key, value)
-              Support.reject!("duplicate_json_key") if key?(key)
-              super
+          class DuplicateKeyDetector
+            ARRAY_OPEN = "[".ord
+            ARRAY_CLOSE = "]".ord
+            OBJECT_OPEN = "{".ord
+            OBJECT_CLOSE = "}".ord
+            QUOTE = '"'.ord
+            ESCAPE = "\\\\".ord
+            COLON = ":".ord
+            COMMA = ",".ord
+            SLASH = "/".ord
+            STAR = "*".ord
+            WHITESPACE = [" ".ord, "\t".ord, "\n".ord, "\r".ord].freeze
+
+            def initialize(text)
+              @text = text
+              @index = 0
+            end
+
+            def reject_duplicates!
+              skip_insignificant
+              scan_value
+              skip_insignificant
+              raise JSON::ParserError, "strict JSON scanner did not consume the document" unless current_byte.nil?
+
+              true
+            end
+
+            private
+
+            def scan_value
+              skip_insignificant
+              case current_byte
+              when OBJECT_OPEN then scan_object
+              when ARRAY_OPEN then scan_array
+              when QUOTE then scan_string
+              else scan_scalar
+              end
+            end
+
+            def scan_object
+              consume(OBJECT_OPEN)
+              keys = {}
+              skip_insignificant
+
+              until current_byte == OBJECT_CLOSE
+                key = scan_string(decode: true)
+                Support.reject!("duplicate_json_key") if keys.key?(key)
+                keys[key] = true
+
+                skip_insignificant
+                consume(COLON)
+                scan_value
+                skip_insignificant
+                break if current_byte == OBJECT_CLOSE
+
+                consume(COMMA)
+                skip_insignificant
+              end
+
+              consume(OBJECT_CLOSE)
+            end
+
+            def scan_array
+              consume(ARRAY_OPEN)
+              skip_insignificant
+
+              until current_byte == ARRAY_CLOSE
+                scan_value
+                skip_insignificant
+                break if current_byte == ARRAY_CLOSE
+
+                consume(COMMA)
+                skip_insignificant
+              end
+
+              consume(ARRAY_CLOSE)
+            end
+
+            def scan_string(decode: false)
+              start = @index
+              consume(QUOTE)
+
+              loop do
+                case current_byte
+                when QUOTE
+                  @index += 1
+                  break
+                when ESCAPE
+                  @index += 2
+                else
+                  @index += 1
+                end
+              end
+
+              return unless decode
+
+              JSON.parse(@text.byteslice(start, @index - start), create_additions: false)
+            end
+
+            def scan_scalar
+              @index += 1 until scalar_delimiter?(current_byte)
+            end
+
+            def scalar_delimiter?(byte)
+              byte.nil? || byte == COMMA || byte == ARRAY_CLOSE || byte == OBJECT_CLOSE || WHITESPACE.include?(byte) || comment_start?
+            end
+
+            def skip_insignificant
+              loop do
+                @index += 1 while WHITESPACE.include?(current_byte)
+
+                if current_byte == SLASH && next_byte == SLASH
+                  @index += 2
+                  @index += 1 until current_byte.nil? || current_byte == "\n".ord || current_byte == "\r".ord
+                elsif current_byte == SLASH && next_byte == STAR
+                  @index += 2
+                  @index += 1 until current_byte == STAR && next_byte == SLASH
+                  @index += 2
+                else
+                  break
+                end
+              end
+            end
+
+            def comment_start?
+              current_byte == SLASH && (next_byte == SLASH || next_byte == STAR)
+            end
+
+            def consume(expected)
+              raise JSON::ParserError, "strict JSON scanner lost token alignment" unless current_byte == expected
+
+              @index += 1
+            end
+
+            def current_byte
+              @text.getbyte(@index)
+            end
+
+            def next_byte
+              @text.getbyte(@index + 1)
             end
           end
 
           module_function
 
           def parse(text)
-            plain(JSON.parse(text, object_class: UniqueHash, create_additions: false))
+            parsed = JSON.parse(text, create_additions: false, allow_duplicate_key: true)
+            DuplicateKeyDetector.new(detector_text(text)).reject_duplicates!
+            parsed
           rescue JSON::ParserError
             Support.reject!("json_parse")
           end
 
-          def plain(value)
-            case value
-            when Hash
-              value.each_with_object({}) { |(key, child), result| result[key] = plain(child) }
-            when Array
-              value.map { |child| plain(child) }
+          def detector_text(text)
+            return text if text.encoding == Encoding::UTF_8
+
+            if text.encoding == Encoding::ASCII_8BIT
+              text.dup.force_encoding(Encoding::UTF_8)
             else
-              value
+              text.encode(Encoding::UTF_8)
             end
           end
+
+          private_constant :DuplicateKeyDetector
         end
 
         module ClosedSchema
