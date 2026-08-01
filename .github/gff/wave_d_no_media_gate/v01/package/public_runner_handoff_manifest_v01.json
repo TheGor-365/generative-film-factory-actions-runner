@@ -1,0 +1,31 @@
+{
+  "$schema": "schemas/public_runner_handoff_manifest_v01.schema.json",
+  "handoff_id": "PUBLIC_RUNNER_HANDOFF_MANIFEST_V01",
+  "schema_version": "1.0.0",
+  "private_gate_manifest_sha256": "d6a4ffa47d4ea72a05954b03deaf411bd86d68671be377add30b8b50e866d3ae",
+  "fixture_bundle_sha256": "ba22a801b1ed87c959dbb451a4114d440a5881648237753faa6e12cafcf3d0a7",
+  "validation_receipt_sha256": "7fcf4939bd899e31cf3b396e6ca8cf15d03cfcde9c05f8f1c9d1dc02f9ca1279",
+  "public_runner_main_sha": "f056424c1ba40c044cdc31ee38b6fe441e2ec8d3",
+  "frozen_private_source_sha": "be76c8be95fa61d175c4c99ea16b4bf670510560",
+  "allowed_public_paths": [
+    ".github/gff/wave_d_no_media_gate/v01/**",
+    "test/wave_d_no_media_gate_v01/**"
+  ],
+  "expected_public_validator": "FactoryMvp::Runner::WaveDNoMediaGate::V01.validate!",
+  "expected_validation_semantics": [
+    "EXACT_PRIVATE_MANIFEST_DIGEST",
+    "SANITIZED_FIXTURE_DIGEST",
+    "PRIVATE_RECEIPT_DIGEST",
+    "PUBLIC_RUNNER_MAIN_EXACT",
+    "NO_MEDIA_BYTES",
+    "NO_PRIVATE_MATERIAL",
+    "NO_EXECUTION_AUTHORITY"
+  ],
+  "planning_only": true,
+  "workflow_dispatch_authority": false,
+  "media_execution_authority": false,
+  "paid_execution_authority": false,
+  "private_repository_write_authority": false,
+  "reverse_authority": false,
+  "sanitized_metadata_only": true
+}
