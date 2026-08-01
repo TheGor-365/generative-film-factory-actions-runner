@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "PublicRunnerHandoffManifestV01",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "handoff_id",
+    "schema_version",
+    "private_gate_manifest_sha256",
+    "fixture_bundle_sha256",
+    "validation_receipt_sha256",
+    "public_runner_main_sha",
+    "frozen_private_source_sha",
+    "allowed_public_paths",
+    "expected_public_validator",
+    "expected_validation_semantics",
+    "planning_only",
+    "workflow_dispatch_authority",
+    "media_execution_authority",
+    "paid_execution_authority",
+    "private_repository_write_authority",
+    "reverse_authority",
+    "sanitized_metadata_only"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "handoff_id": {
+      "const": "PUBLIC_RUNNER_HANDOFF_MANIFEST_V01"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "private_gate_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "fixture_bundle_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "validation_receipt_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "public_runner_main_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "frozen_private_source_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "allowed_public_paths": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "expected_public_validator": {
+      "type": "string",
+      "minLength": 1
+    },
+    "expected_validation_semantics": {
+      "type": "array",
+      "minItems": 7,
+      "maxItems": 7,
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "EXACT_PRIVATE_MANIFEST_DIGEST",
+          "SANITIZED_FIXTURE_DIGEST",
+          "PRIVATE_RECEIPT_DIGEST",
+          "PUBLIC_RUNNER_MAIN_EXACT",
+          "NO_MEDIA_BYTES",
+          "NO_PRIVATE_MATERIAL",
+          "NO_EXECUTION_AUTHORITY"
+        ]
+      }
+    },
+    "planning_only": {
+      "const": true
+    },
+    "workflow_dispatch_authority": {
+      "const": false
+    },
+    "media_execution_authority": {
+      "const": false
+    },
+    "paid_execution_authority": {
+      "const": false
+    },
+    "private_repository_write_authority": {
+      "const": false
+    },
+    "reverse_authority": {
+      "const": false
+    },
+    "sanitized_metadata_only": {
+      "const": true
+    }
+  }
+}
