@@ -1,0 +1,164 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Wave2PrivateValidationReceiptV01",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "receipt_id",
+    "schema_version",
+    "validated_control_main_sha",
+    "validated_public_runner_main_sha",
+    "private_gate_manifest_sha256",
+    "fixture_bundle_sha256",
+    "checks",
+    "negative_mutations",
+    "workflow_dispatched",
+    "public_runner_writes",
+    "provider_calls",
+    "paid_provider_calls",
+    "media_execution",
+    "private_media_in_git",
+    "no_fake_green"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "minLength": 1
+    },
+    "receipt_id": {
+      "const": "WAVE2_PRIVATE_VALIDATION_RECEIPT_V01"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    },
+    "validated_control_main_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "validated_public_runner_main_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "private_gate_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "fixture_bundle_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "checks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exact_member_completeness",
+        "exact_merge_and_blob_bindings",
+        "schema_parse",
+        "synthetic_fixture_classification",
+        "private_material_scan",
+        "binary_media_scan",
+        "secret_scan",
+        "stale_sha_rejection",
+        "omitted_lane_rejection",
+        "unexpected_member_rejection",
+        "cross_lane_binding_consistency",
+        "no_reverse_authority",
+        "no_execution_authority"
+      ],
+      "properties": {
+        "exact_member_completeness": {
+          "const": "PASS"
+        },
+        "exact_merge_and_blob_bindings": {
+          "const": "PASS"
+        },
+        "schema_parse": {
+          "const": "PASS"
+        },
+        "synthetic_fixture_classification": {
+          "const": "PASS"
+        },
+        "private_material_scan": {
+          "const": "PASS"
+        },
+        "binary_media_scan": {
+          "const": "PASS"
+        },
+        "secret_scan": {
+          "const": "PASS"
+        },
+        "stale_sha_rejection": {
+          "const": "PASS"
+        },
+        "omitted_lane_rejection": {
+          "const": "PASS"
+        },
+        "unexpected_member_rejection": {
+          "const": "PASS"
+        },
+        "cross_lane_binding_consistency": {
+          "const": "PASS"
+        },
+        "no_reverse_authority": {
+          "const": "PASS"
+        },
+        "no_execution_authority": {
+          "const": "PASS"
+        }
+      }
+    },
+    "negative_mutations": {
+      "type": "array",
+      "minItems": 49,
+      "maxItems": 49,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mutation_id",
+          "expected",
+          "observed",
+          "error_code"
+        ],
+        "properties": {
+          "mutation_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expected": {
+            "const": "REJECT"
+          },
+          "observed": {
+            "const": "REJECT"
+          },
+          "error_code": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "workflow_dispatched": {
+      "const": false
+    },
+    "public_runner_writes": {
+      "const": 0
+    },
+    "provider_calls": {
+      "const": 0
+    },
+    "paid_provider_calls": {
+      "const": 0
+    },
+    "media_execution": {
+      "const": 0
+    },
+    "private_media_in_git": {
+      "const": false
+    },
+    "no_fake_green": {
+      "const": true
+    }
+  }
+}
