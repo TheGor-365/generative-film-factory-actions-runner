@@ -8,7 +8,7 @@ on:
     types:
       - opened
     paths:
-      - .github/gff/r0e_triggers/R0E_02_001.json
+      - .github/gff/r0e_triggers/R0E_04_001.json
 
 permissions:
   contents: read
@@ -28,7 +28,7 @@ jobs:
           github.event.action == 'opened' &&
           github.event.pull_request.base.ref == 'main' &&
           github.event.pull_request.head.repo.full_name == github.repository &&
-          github.event.pull_request.head.ref == 'run/r0e-02-fresh-evidence-001'
+          github.event.pull_request.head.ref == 'run/r0e-04-fresh-evidence-001'
         )
       }}
     runs-on: ubuntu-latest
@@ -45,7 +45,12 @@ jobs:
       PR_HEAD_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || '' }}
       PR_HEAD_REPO: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name || '' }}
       EVENT_ACTION: ${{ github.event.action || '' }}
-      TRIGGER_PATH: .github/gff/r0e_triggers/R0E_02_001.json
+      ACTIVE_TRIGGER_CHAT: GFF-CHAT-R0E-04
+      ACTIVE_TRIGGER_WORK_ORDER: RWO-GFF-RUNNER-ONE-FRESH-OBSERVABLE-RUN-004
+      ACTIVE_TRIGGER_BRANCH: run/r0e-04-fresh-evidence-001
+      ACTIVE_TRIGGER_PATH: .github/gff/r0e_triggers/R0E_04_001.json
+      ACTIVE_TRIGGER_NONCE: 66f5bbb15d1d8d2af1dd7b1587047ec551a9b35121fa85267ed97ffc6e44b7c6
+      TRIGGER_PATH: .github/gff/r0e_triggers/R0E_04_001.json
       STATUS_CONTEXT: public-runner/gff/wave-c-validation
 
     steps:
@@ -86,7 +91,7 @@ jobs:
               [[ "$EVENT_ACTION" == "opened" ]]
               [[ "$PR_BASE_REF" == "main" ]]
               [[ "$PR_HEAD_REPO" == "$RUNNER_REPO" ]]
-              [[ "$PR_HEAD_REF" == "run/r0e-02-fresh-evidence-001" ]]
+              [[ "$PR_HEAD_REF" == "$ACTIVE_TRIGGER_BRANCH" ]]
               [[ "$TRIGGER_SHA" =~ ^[0-9a-f]{40}$ ]]
               printf '%s\n' "EVENT_SELECTION=PASS_PULL_REQUEST"
               ;;
@@ -114,13 +119,18 @@ jobs:
           [[ ${#trigger_delta[@]} -eq 1 ]]
           [[ "${trigger_delta[0]}" == $'A\t'"$TRIGGER_PATH" ]]
 
-          trigger_json="$trigger_root/R0E_02_001.json"
+          trigger_json="$trigger_root/R0E_04_001.json"
           git show "$TRIGGER_SHA:$TRIGGER_PATH" > "$trigger_json"
           PYTHONDONTWRITEBYTECODE=1 python3 scripts/wave_c/test_r0e_pr_trigger.py validate \
             --path "$trigger_json" \
             --runner-base-sha "$RUNNER_SHA"
 
           printf '%s\n' \
+            "ACTIVE_TRIGGER_CHAT=$ACTIVE_TRIGGER_CHAT" \
+            "ACTIVE_TRIGGER_WORK_ORDER=$ACTIVE_TRIGGER_WORK_ORDER" \
+            "ACTIVE_TRIGGER_BRANCH=$ACTIVE_TRIGGER_BRANCH" \
+            "ACTIVE_TRIGGER_PATH=$ACTIVE_TRIGGER_PATH" \
+            "ACTIVE_TRIGGER_NONCE=$ACTIVE_TRIGGER_NONCE" \
             "ONE_FILE_TRIGGER_DELTA=PASS" \
             "TRIGGER_PATH=$TRIGGER_PATH" \
             "TRIGGER_EVIDENCE_SHA=$TRIGGER_SHA" \
