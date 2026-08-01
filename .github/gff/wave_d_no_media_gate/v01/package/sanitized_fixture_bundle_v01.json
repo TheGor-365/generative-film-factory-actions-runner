@@ -1,0 +1,60 @@
+{
+  "$schema": "schemas/sanitized_fixture_bundle_v01.schema.json",
+  "bundle_id": "SANITIZED_FIXTURE_BUNDLE_V01",
+  "schema_version": "1.0.0",
+  "classification": "SANITIZED_SYNTHETIC_NO_MEDIA",
+  "records": [
+    {
+      "fixture_id": "SYNTH-FILM-001",
+      "story_placeholder": "SYNTHETIC_STORY_PLACEHOLDER_001",
+      "q0_placeholder": {
+        "kind": "Q0_PLACEHOLDER",
+        "media_present": false,
+        "production_media": false
+      },
+      "structural_metadata": {
+        "profile_id": "short_form_commercial_300_v01",
+        "sequence_count": 1,
+        "scene_count": 1,
+        "shot_count": 2,
+        "generation_segment_count": 2,
+        "frame_rate": "24/1",
+        "raster": "1920x1080"
+      },
+      "zero_media": {
+        "media_asset_count": 0,
+        "media_bytes_present": false,
+        "external_asset_locators": []
+      },
+      "expected_validation_outcome": "PASS"
+    },
+    {
+      "fixture_id": "SYNTH-FILM-002",
+      "story_placeholder": "SYNTHETIC_STORY_PLACEHOLDER_002",
+      "q0_placeholder": {
+        "kind": "Q0_PLACEHOLDER",
+        "media_present": false,
+        "production_media": false
+      },
+      "structural_metadata": {
+        "profile_id": "short_form_technical_120_v01",
+        "sequence_count": 1,
+        "scene_count": 2,
+        "shot_count": 3,
+        "generation_segment_count": 3,
+        "frame_rate": "24/1",
+        "raster": "1280x720"
+      },
+      "zero_media": {
+        "media_asset_count": 0,
+        "media_bytes_present": false,
+        "external_asset_locators": []
+      },
+      "expected_validation_outcome": "PASS"
+    }
+  ],
+  "contains_private_material": false,
+  "contains_media_bytes": false,
+  "contains_provider_responses": false,
+  "contains_secrets": false
+}
